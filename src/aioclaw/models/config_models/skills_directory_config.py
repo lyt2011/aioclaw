@@ -52,7 +52,7 @@ class SkillsDirectoryConfig(PathConfig):
 			
 			if not self._is_skill_file(skill_absolute_path): continue
 			
-			self._skill_objects_list.append(Skill.from_file(skill_absolute_path))
+			self._content.append(Skill.from_file(skill_absolute_path))
 		
 		return self
 	
