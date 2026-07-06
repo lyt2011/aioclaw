@@ -25,7 +25,7 @@
 ## 安装 📦
 
 ```bash
-pip install aioclaw
+pip install /path/to/aioclaw
 ```
 
 ### 依赖
