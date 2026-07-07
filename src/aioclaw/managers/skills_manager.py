@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from aioclaw.protocols	import SkillsManagerProtocol
+from ..protocols	import SkillsManagerProtocol
 
 from typing import List, TYPE_CHECKING
 
 if TYPE_CHECKING:
 	
-	from aioclaw.models	import Skill
+	from ..models	import Skill
 
 
 class SkillsManager(SkillsManagerProtocol):

@@ -4,7 +4,7 @@ from pydantic	import PrivateAttr, model_validator
 from typing		import Optional, Self
 
 from .base_config	import BaseConfig
-from aioclaw.enums	import FileTypes
+from ...enums		import FileTypes
 
 import os
 

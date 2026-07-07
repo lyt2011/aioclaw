@@ -1,4 +1,4 @@
-from aioclaw.protocols	import ToolSetProtocol, ToolsManagerProtocol
+from ..protocols	import ToolSetProtocol, ToolsManagerProtocol
 
 from aioverse.utils.syntax_sugar import build_tool_schema
 

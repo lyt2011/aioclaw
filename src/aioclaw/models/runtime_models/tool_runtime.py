@@ -1,9 +1,9 @@
 from pydantic	import BaseModel, PrivateAttr, ConfigDict, SkipValidation, model_validator
 from typing		import Dict, Any, Awaitable, Optional, Callable
 
-from aioverse.base_models.contexts	import ToolOutput
+from aioverse.models	import ToolOutput
 
-from aioclaw.enums	import ExecuteStatus
+from ...enums	import ExecuteStatus
 
 import asyncio
 import orjson

@@ -1,5 +1,5 @@
-from aioclaw.protocols	import ToolSetProtocol, ToolsManagerProtocol, SkillsManagerProtocol
-from aioclaw.models		import AssistantPrompt
+from ..protocols	import ToolSetProtocol, ToolsManagerProtocol, SkillsManagerProtocol
+from ..models		import AssistantPrompt
 
 from aioverse.utils.syntax_sugar import build_tool_schema
 

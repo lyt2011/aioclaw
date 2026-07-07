@@ -1,9 +1,7 @@
 from abc	import ABC, abstractmethod
 from typing	import List, TYPE_CHECKING
 
-from aioverse.base_models.tool_schema	import Tool
-from aioverse.base_models.tool_calling	import ToolCalling
-from aioverse.base_models.contexts		import ToolOutput
+from aioverse.models	import ToolCalling, Tool, ToolOutput
 
 
 class ToolsManagerProtocol(ABC):

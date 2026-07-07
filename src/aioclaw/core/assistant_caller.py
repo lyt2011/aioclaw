@@ -1,22 +1,37 @@
-from aioverse.base_models				import ModelConfig
-from aioverse.base_models.contexts		import Context, Prompt, ToolOutput, ToolCallingContext
-from aioverse.base_models.tool_calling	import ToolCalling
-from aioverse.models.response			import Response, Usage
-from aioverse.models.blocks				import ToolCallingBlock
-from aioverse.managers					import ContextManager
-from aioverse.Log						import get_log
-from aioverse.OpenAI					import OpenAIClient
-from aioverse.protocols 				import LogProtocol
+from aioverse.models		import (
+	Response,
+	Usage,
+	ToolCallingBlock,
+	ToolCalling,
+	Context,
+	Prompt,
+	ToolCallingContext,
+	ModelConfig
+)
+from aioverse.Log			import get_log
+from aioverse.OpenAI		import OpenAIClient
+from aioverse.protocols 	import LogProtocol
+
+from ..protocols	import (
+	ContextCompressProtocol,
+	ModelsManagerProtocol,
+	ToolsManagerProtocol,
+	ToolSetProtocol
+)
+from ..errors		import (
+	ClientNotReady,
+	ModelConfigNotFound,
+	AssistantCallError,
+	MaxRoundLimit,
+	UnknownResponseType
+)
+from ..models		import AssistantRuntime, AssistantOutput, AssistantPrompt
+from ..managers		import KeysManager, ClawContextManager
 
 from typing import List, Dict, Any, Optional, Tuple
 
 import aiohttp
 import asyncio
-
-from aioclaw.protocols	import ContextCompressProtocol, ModelsManagerProtocol, ToolsManagerProtocol, ToolSetProtocol
-from aioclaw.errors		import ClientNotReady, ModelConfigNotFound, AssistantCallError, MaxRoundLimit, UnknownResponseType
-from aioclaw.models		import AssistantRuntime, AssistantOutput, AssistantPrompt
-from aioclaw.managers	import KeysManager
 
 
 class AssistantCaller:
@@ -54,11 +69,27 @@ class AssistantCaller:
 		# 状态
 		self.is_changed_model = False
 	
+	def _update_token(
+		self,
+		context_manager	: ClawContextManager,
+		new_context		: Context,
+		usage			: Usage
+	) -> None:
+		
+		"""更新本次对话的token数量"""
+		
+		# 计算本次消耗token API返回total_tokens - 上下文管理器中未更新的token
+		current_request_token = usage.total_tokens - context_manager.token
+		
+		new_context.set_token(current_request_token)
+		context_manager.set_token(usage.total_tokens)
+		
+		return None
+	
 	# 压缩上下文
-	async def _press_context(self, context_manager: ContextManager):
+	async def _press_context(self, context_manager: ClawContextManager):
 		
 		if not context_manager or not self.model_config:
-			
 			raise ClientNotReady("客户端未准备就绪")
 		
 		press_result	= await self.context_presser.compress(
@@ -73,19 +104,7 @@ class AssistantCaller:
 		
 		return None
 	
-	@staticmethod
-	def _update_token(
-		context_manager	: ContextManager,
-		token_usage		: Usage
-	) -> None:
-		
-		if token_usage is None: return None
-		
-		context_manager.set_token(token_usage.prompt_tokens)
-		
-		return None
-	
-	def _update_prompt(self, context_manager: ContextManager) -> None:
+	def _update_prompt(self, context_manager: ClawContextManager) -> None:
 		
 		# 更新提示词
 		if self.assistant_prompt is not None:
@@ -96,19 +115,20 @@ class AssistantCaller:
 		
 		return None
 	
+	async def _log_tool_call(self, tool_call: ToolCalling, max_length: int = 70) -> None:
+		
+		tool_name		= tool_call.function.name
+		tool_arguments	= tool_call.function.arguments
+		
+		await self.log.log(f"{tool_name} -> {tool_arguments[:max_length]}")
+	
 	async def _tools_execute(self, tool_calling_ctx: ToolCallingContext) -> ToolCallingBlock:
 		
 		tool_calling_block = ToolCallingBlock(tool_calling=tool_calling_ctx)
 		
 		for tool_call in tool_calling_ctx.tool_calls:
-		
-			tool_name		= tool_call.function.name
-			tool_arguments	= (
-				tool_call.function.arguments if len(tool_call.function.arguments) < 50
-				else f"{tool_call.function.arguments[:50]}..."
-			)
 			
-			await self.log.log(f"{tool_name} -> {tool_arguments}")
+			await self._log_tool_call(tool_call, 100)
 			
 			tool_output = await self.tools_manager.execute_tool(tool_call)
 			
@@ -123,35 +143,24 @@ class AssistantCaller:
 		"""内部ai调用函数 仅调用ai和处理错误"""
 
 		if self.is_changed_model is False:
-			
 			raise ClientNotReady("未选择模型")
 		
 		# call AI 并注入工具
-		response = await self.openai_client.call(
-			**kwargs,
-			body = {"tools": self.tools_manager.to_list()}
-		)
+		response = await self.openai_client.call(**kwargs)
 		
 		return response
 	
-	def _generate_assistant_output(
-		self,
-		assistant_runtime	: AssistantRuntime,
-		response			: Response
-	) -> AssistantOutput:
+	def _generate_assistant_output(self, response: Response) -> AssistantOutput:
 		
 		output = AssistantOutput(
-			response_type		= assistant_runtime.last_response_type,
+			response_type		= response.choices[0].finish_reason,
 			content				= response.choices[0].message.content,
 			reasoning_content	= response.choices[0].message.reasoning_content
 		)
 		
 		return output
 	
-	def change_model(
-		self,
-		**kwargs
-	) -> Tuple[bool, ModelConfig | None]:
+	def change_model(self, **kwargs) -> Tuple[bool, ModelConfig | None]:
 		
 		# 找模型
 		model_config = self.models_manager.find_model(**kwargs)
@@ -175,7 +184,7 @@ class AssistantCaller:
 	
 	async def async_assistant_generator(
 		self,
-		context_manager		: ContextManager,
+		context_manager		: ClawContextManager,
 		assistant_runtime	: AssistantRuntime
 	) -> AssistantOutput:
 		
@@ -191,17 +200,24 @@ class AssistantCaller:
 			response = await self._call_assistant(
 				context_manager	= context_manager,
 				assistant_key	= self.keys_manager.get_available_key(),
-				timeout			= assistant_runtime.timeout
+				timeout			= assistant_runtime.timeout,
+				body			= {"tools": self.tools_manager.to_list()}
 			)
 			
 			context		= response.choices[0].message
 			response_T	= response.choices[0].finish_reason
 			
 			assistant_runtime.update_LRT(response_T) # 更新last_response_type
-			self._update_token(context_manager=context_manager, token_usage=response.usage)
+			
+			if response.usage is not None:
+				self._update_token(
+					new_context		= context,
+					context_manager	= context_manager,
+					usage			= response.usage
+				)
 			
 			# 生成输出
-			yield self._generate_assistant_output(response=response, assistant_runtime=assistant_runtime)
+			yield self._generate_assistant_output(response=response)
 						
 			if response_T == "tool_calls":
 					

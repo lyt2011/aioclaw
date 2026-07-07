@@ -1,8 +1,6 @@
-from aioclaw.protocols	import ToolsManagerProtocol
+from ..protocols	import ToolsManagerProtocol
 
-from aioverse.base_models.tool_schema	import Tool
-from aioverse.base_models.tool_calling	import ToolCalling
-from aioverse.base_models.contexts		import ToolOutput
+from aioverse.models	import ToolCalling, Tool, ToolOutput
 
 from typing import List, Dict, Tuple, Awaitable, Any, Callable
 

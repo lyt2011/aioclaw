@@ -5,16 +5,16 @@ from typing	import TYPE_CHECKING
 
 if TYPE_CHECKING:
 
-	from aioverse.managers		import ContextManager
-	from aioverse.base_models	import ModelConfig
+	from aioverse.managers	import ContextManager
+	from aioverse.models	import ModelConfig
 	
-	from aioclaw.models	import ContextCompressResult
+	from ..models	import ContextCompressResult
 
 
 class ContextCompressProtocol(ABC):
 	
 	@abstractmethod
-	def _is_out(self, context_manager: ContextManager, model_config: ModelConfig) -> bool:
+	async def _is_out(self, context_manager: ContextManager, model_config: ModelConfig) -> bool:
 		
 		"""判断是否已经超限"""
 		

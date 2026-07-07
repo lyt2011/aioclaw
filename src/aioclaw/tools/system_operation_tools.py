@@ -1,4 +1,4 @@
-from aioclaw.protocols	import ToolSetProtocol, ToolsManagerProtocol
+from ..protocols	import ToolSetProtocol, ToolsManagerProtocol
 
 from typing	import TYPE_CHECKING
 

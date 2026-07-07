@@ -5,7 +5,7 @@ from .skills_directory_config	import SkillsDirectoryConfig
 from .assistant_runtime_config	import AssistantRuntimeConfig
 from .path_config				import PathConfig
 
-from aioverse.base_models	import ModelConfig
+from aioverse.models	import ModelConfig
 
 from typing		import List
 from pydantic	import Field

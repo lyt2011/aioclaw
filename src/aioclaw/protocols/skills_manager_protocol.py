@@ -5,7 +5,7 @@ from typing	import Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
 	
-	from aioclaw.base_models import Skill
+	from ..models import Skill
 
 
 class SkillsManagerProtocol(ABC):

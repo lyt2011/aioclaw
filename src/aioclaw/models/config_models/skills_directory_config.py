@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing		import TYPE_CHECKING, List, Literal, Self
 from pydantic	import PrivateAttr, model_validator, Field
 
-from .path_config			import PathConfig
-from ..skill				import Skill
-from aioclaw.enums			import FileTypes
+from .path_config		import PathConfig
+from ..skill			import Skill
+from ...enums			import FileTypes
 
 import os
 

@@ -1,4 +1,4 @@
-from aioclaw.protocols import ToolsManagerProtocol
+from ..protocols import ToolsManagerProtocol
 
 from typing	import List
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, TYPE_CHECKING
 
-from aioclaw.protocols import ModelsManagerProtocol
+from ..protocols import ModelsManagerProtocol
 
 if TYPE_CHECKING:
 	

@@ -15,6 +15,7 @@ from .assistant_output			import AssistantOutput
 from .assistant_prompt			import AssistantPrompt
 from .context_compress_result	import ContextCompressResult
 from .skill						import Skill
+from ._claw_context_status		import _ClawContextsStatus
 
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
 	
 	"AssistantOutput",
 	"AssistantPrompt",
-	"ContextCompressResult"
+	"ContextCompressResult",
+	"_ClawContextsStatus"
 ]

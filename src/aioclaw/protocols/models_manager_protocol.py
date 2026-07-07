@@ -5,7 +5,7 @@ from typing	import Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
 	
-	from aioverse.base_models import ModelConfig
+	from aioverse.models import ModelConfig
 
 
 class ModelsManagerProtocol(ABC):
