@@ -52,6 +52,6 @@ class PydanticModelsFactory(FactoryProtocol):
 			try:
 				return model_factory.model_validate(data)
 			except Exception as e:
-				logger.warning(f"模型验证失败: {e}", exc_info=True)
+				logger.debug(f"模型验证失败: {e}")
 
 		return None

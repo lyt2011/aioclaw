@@ -26,8 +26,9 @@ class StreamHandler:
 		
 		"""清空本轮增量缓存"""
 		
-		self._content = ""
-		self._reasoning = ""
+		self._content	= ""
+		self._reasoning	= ""
+		
 		self._tool_calls.clear()
 
 	def merge(self, delta: Delta) -> None:
@@ -36,8 +37,10 @@ class StreamHandler:
 
 		if delta.content:
 			self._content += delta.content
+		
 		if delta.reasoning_content:
 			self._reasoning += delta.reasoning_content
+		
 		if delta.tool_calls:
 			for tc in delta.tool_calls:
 				self._merge_tool_call(tc)
@@ -47,8 +50,10 @@ class StreamHandler:
 		"""合并单个 tool_call delta 到缓存"""
 
 		existing = self._find_tool_call(tc.get("index"))
+		
 		if existing is not None:
 			self._update_tool_call(existing, tc)
+		
 		else:
 			self._add_tool_call(tc)
 
@@ -89,6 +94,7 @@ class StreamHandler:
 		tc.setdefault("function", {})
 		tc["function"].setdefault("name", "")
 		tc["function"].setdefault("arguments", "")
+		
 		self._tool_calls.append(tc)
 
 	def flush(self) -> AssistantOutput:

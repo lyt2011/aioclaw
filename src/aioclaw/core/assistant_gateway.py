@@ -55,7 +55,11 @@ from .stream_handler	import StreamHandler
 from typing	import Optional, Union, Iterator, List
 
 import asyncio
+import logging
 import aiohttp
+
+
+logger = logging.getLogger(__name__)
 
 
 class AssistantGateway(ValueNotifier):
@@ -321,7 +325,7 @@ class AssistantGateway(ValueNotifier):
 
 		for tool_call in context.tool_calls:
 
-			logger.debug(
+			logger.info(
 				f"Tool {tool_call.function.name} executing "
 				f"with arguments: {tool_call.function.arguments}"
 			)
@@ -455,6 +459,10 @@ class AssistantGateway(ValueNotifier):
 
 		async for chunk in self.openai_client.call_stream(request=request):
 
+			if self.is_stopping_generator:
+				logger.info("流式请求被 stop 信号中断")
+				return None
+
 			if chunk.usage is not None:
 				contexts_status.set_token(chunk.usage.total_tokens)
 
@@ -564,6 +572,8 @@ class AssistantGateway(ValueNotifier):
 		await self.on_round_initiate()
 
 		try:
+			if self.is_stopping_generator:
+				return None
 			if self.assistant_model_config.support_streaming:
 				return await self.on_stream_request()
 			else:
