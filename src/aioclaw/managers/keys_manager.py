@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import List, TYPE_CHECKING
+from ..errors	import NoKeyAvailableError
+
+from typing import List, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
 	
-	from aioverse.base_models	import AssistantKey
+	from ..models	import AssistantKey
 
 
 class KeysManager:
 	
-	def __init__(self, keys: List[AssistantKey]):
+	def __init__(self, keys: Optional[List[AssistantKey]] = None):
 		
-		self.keys			= keys
+		self.keys			= keys or []
 		self._cached_key	= None
 	
 	def cache_key(self, key: AssistantKey):
@@ -32,7 +34,7 @@ class KeysManager:
 		
 		return key.is_enable and key.is_available
 	
-	def get_available_key(self) -> AssistantKey | None:
+	def get_available_key(self) -> Union[AssistantKey, None]:
 	
 		"""获取可用key"""
 		
@@ -47,4 +49,4 @@ class KeysManager:
 			self.cache_key(key)
 			return key
 		
-		raise RuntimeError(f"找不到可用的key")
+		raise NoKeyAvailableError(f"找不到可用的key")

@@ -1,12 +1,10 @@
-from __future__ import annotations
-
-from typing		import TYPE_CHECKING, List, Literal, Self
 from pydantic	import PrivateAttr, model_validator, Field
 
-from .path_config		import PathConfig
-from ..skill			import Skill
 from ...enums			import FileTypes
+from ..skill			import Skill
+from .path_config		import PathConfig
 
+from typing		import TYPE_CHECKING, List, Literal, Self, Union
 import os
 
 
@@ -15,8 +13,8 @@ SKILL_FILE_SUFFIX = "md"
 
 class SkillsDirectoryConfig(PathConfig):
 	
-	type: Literal[FileTypes.directory] = FileTypes.directory
-	path: str | None = Field(default=None)
+	type: Literal[FileTypes.DIRECTORY] = FileTypes.DIRECTORY
+	path: Union[str, None] = Field(default=None)
 	
 	_content: List[Skill] = PrivateAttr(default_factory=list)
 	
@@ -44,15 +42,15 @@ class SkillsDirectoryConfig(PathConfig):
 		转为Skill对象 写回self._skill_objects_list
 		"""
 		
-		if self.path is None: return self
+		if self.path is None:
+			return self
 		
 		for skill_path in os.listdir(self.path):
 			
 			skill_absolute_path = os.path.join(self.path, skill_path)
 			
-			if not self._is_skill_file(skill_absolute_path): continue
-			
-			self._content.append(Skill.from_file(skill_absolute_path))
+			if self._is_skill_file(skill_absolute_path):
+				self._content.append(Skill.from_file(skill_absolute_path))
 		
 		return self
 	

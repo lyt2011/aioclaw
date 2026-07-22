@@ -1,7 +1,9 @@
+from __future__ import annotations
 from enum	import Enum
 
 
 class FileTypes(str, Enum):
 	
-	file		: str = "file"
-	directory	: str = "directory"
+	FILE		: str = "file"
+	DIRECTORY	: str = "directory"
+	ENV			: str = "env"

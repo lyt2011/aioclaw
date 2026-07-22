@@ -1,8 +1,7 @@
 # 类型两件套
 from pydantic	import BaseModel
-from typing		import Optional
 
-from aioverse.managers import ContextManager
+from typing		import Optional
 
 
 class ContextCompressResult(BaseModel):

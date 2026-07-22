@@ -1,3 +1,4 @@
+from __future__ import annotations
 from ..protocols	import ToolSetProtocol, ToolsManagerProtocol
 
 from typing	import TYPE_CHECKING

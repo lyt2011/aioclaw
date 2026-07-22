@@ -1,19 +1,19 @@
-from ..protocols	import ToolSetProtocol, ToolsManagerProtocol
-
-from aioverse.utils.syntax_sugar import build_tool_schema
-
-from typing			import Optional, Dict, Any
+from __future__ import annotations
 from fake_useragent	import UserAgent
-
 import httpx
 import trafilatura
+
+from ..protocols	import ToolsManagerProtocol
+from ..utils		import build_tool_schema
+from .base_tool		import BaseTool
+
+from typing			import Optional, Dict, Any
 
 
 # 访问url静态内容
 FetchUrlSchema = build_tool_schema(
 	tool_name			= "fetch_url",
 	tool_description	= "访问url的静态内容",
-	requirements		= ["url", "method"],
 	arguments			= {
 		"url"					: ("string", "目标url"),
 		"method"				: ("string", "使用的请求方式 包括但不限于get和post"),
@@ -26,11 +26,7 @@ FetchUrlSchema = build_tool_schema(
 )
 
 
-class NetworkOperationTools(ToolSetProtocol):
-	
-	def __init__(self, *args, **kwargs):
-		
-		super().__init__(*args, **kwargs)
+class NetworkOperationTools(BaseTool):
 			
 	def register(self, tools_manager: ToolsManagerProtocol):
 		
@@ -39,12 +35,7 @@ class NetworkOperationTools(ToolSetProtocol):
 		tools_manager.register(self.fetch_url, FetchUrlSchema)
 	
 	# 辅助方法 解析html
-	def _html2markdown(
-		self,
-		html: str,
-		default: Any = "Empty Response",
-		**kwargs
-	) -> Any:
+	def _html2markdown(self, html: str, **kwargs) -> Any:
 		
 		response_markdown	= trafilatura.extract(
 			filecontent		= html,
@@ -55,17 +46,17 @@ class NetworkOperationTools(ToolSetProtocol):
 			**kwargs
 		)
 		
-		return response_markdown if response_markdown else default
+		return response_markdown if response_markdown else "Empty Response"
 	
 	async def fetch_url(
 		self,
 		url		: str,
 		method	: str,
-		content	: str					= "",
-		headers	: Dict[str, Any] | None	= None,
-		encoding: str					= "utf-8",
-		max_response_length: int		= 800,
-		timeout	: int					= 10
+		content	: str							= "",
+		headers	: Union[Dict[str, Any], None]	= None,
+		encoding: str							= "utf-8",
+		max_response_length: int				= 800,
+		timeout	: int							= 10
 	) -> str:
 		
 		# 请求头
@@ -75,7 +66,8 @@ class NetworkOperationTools(ToolSetProtocol):
 		}
 		
 		# 对参数进行校验
-		if content: content = content.encode(encoding)
+		if content: 
+			content = content.encode(encoding)
 		
 		async with httpx.AsyncClient(
 			timeout			= timeout,
@@ -91,14 +83,16 @@ class NetworkOperationTools(ToolSetProtocol):
 		
 		response_code	= response.status_code
 		response_html	= response.content.decode(encoding)
+		content_type	= response.headers.get("Content-Type", "")
 		
-		result = (
-			response_html if "json" in response.headers.get("Content-Type")
-			else self._html2markdown(response_html)
-		)
+		if "application/json" in content_type:
+			result = response_html
+		elif "text/html" in content_type:
+			result = self._html2markdown(response_html)
+		else:
+			result = response_html
 		
 		if len(result) > max_response_length:
-			
 			result = f"{result[:max_response_length]}..."
 		
 		return f"{response_code}: {result}"

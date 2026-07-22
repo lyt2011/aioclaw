@@ -1,18 +1,18 @@
-from ..protocols	import ToolSetProtocol, ToolsManagerProtocol, SkillsManagerProtocol
-from ..models		import AssistantPrompt
+from __future__ import annotations
+import orjson
 
-from aioverse.utils.syntax_sugar import build_tool_schema
+from ..models		import AssistantPrompt
+from ..protocols	import ToolsManagerProtocol, SkillsManagerProtocol
+from ..utils		import build_tool_schema
+from .base_tool		import BaseTool
 
 from typing import Dict, Optional
-
-import orjson
 
 
 # 找技能
 FindSkillsSchema = build_tool_schema(
 	tool_name			= "find_skills",
 	tool_description	= "查找多个技能 返回一个技能名与技能描述的映射表",
-	requirements		= ["keywords"],
 	arguments			= {
 		"keywords": ("string", "查找关键词 多个关键词使用空格分割")
 	}
@@ -22,7 +22,6 @@ FindSkillsSchema = build_tool_schema(
 ReadSkillSchema = build_tool_schema(
 	tool_name			= "read_skill",
 	tool_description	= "读取(学习)一个技能",
-	requirements		= ["skill_name", "length"],
 	arguments			= {
 		"skill_name"	: ("string", "技能名"),
 		"length"		: ("integer", "读取的长度"),
@@ -33,7 +32,7 @@ ReadSkillSchema = build_tool_schema(
 
 
 # 技能工具
-class SkillOperationTools(ToolSetProtocol):
+class SkillOperationTools(BaseTool):
 	
 	def __init__(
 		self,
@@ -45,9 +44,7 @@ class SkillOperationTools(ToolSetProtocol):
 		
 		super().__init__(*args, **kwargs)
 		
-		# 提供可选的skills管理器实例注入
 		self.skills_manager_instance	= skills_manager_instance
-		# 提供可选的提示词管理器注入 使ai可操作提示词
 		self.assistant_prompt			= assistant_prompt
 	
 	def register(self, tools_manager: ToolsManagerProtocol):

@@ -1,4 +1,5 @@
 from pydantic	import BaseModel, PrivateAttr
+
 from typing		import Any, Self
 
 

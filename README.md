@@ -1,29 +1,32 @@
 # aioclaw 🐾
 
 [![Python Version](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.1.0-green)]()
+[![Version](https://img.shields.io/badge/version-0.2.0-green)]()
 
-> 基于 **aioverse** 构建的 AI 助手框架，提供完整的工具调用、技能管理、上下文压缩等能力~ 杂鱼们也能轻松上手哦！♡
+> 基于 **aioverse** 构建的 AI Agent 框架，事件驱动、全异步、工具编排、会话管理……杂鱼们也能轻松上手哦！♡
 
 ---
 
 ## 简介 ✨
 
-**aioclaw** 是一个异步 Python 框架，旨在快速构建具备**工具编排**与**技能学习**能力的 AI 助手。它封装了模型调用、工具注册与执行、上下文管理、技能检索等底层逻辑，让你只需关注业务本身~ w
+**aioclaw** 是一个异步 Python 框架，旨在快速构建具备**工具编排**与**多轮会话管理**能力的 AI Agent。采用**事件驱动的网关架构，支持流式与非流式双路径**，通过 `AssistantGateway` 暴露丰富的事件钩子，让你灵活控制 AI 交互的每个环节~ w
 
 ---
 
 ## 特性 🌟
 
-- 🧠 **智能助手调用** — 基于 `AssistantCaller` 管理多轮对话与工具调用流程，支持流式输出
-- 🔧 **丰富的工具集** — 内置文件操作、代码执行、网络请求、技能管理等开箱即用的工具
-- 📚 **技能系统** — 支持基于 Markdown 文件的技能定义、检索与动态学习（含 YAML 前页元数据解析）
-- 🧩 **模块化协议设计** — 通过 Protocol 抽象层实现各组件的可替换性
-- 📦 **配置驱动** — 通过 `ClawConfig` 统一管理模型、路径、技能目录等配置
-- ⚡ **全异步** — 基于 `asyncio` 构建，支持高并发场景
-- 🔐 **Key 管理** — 内置 API Key 缓存与可用性检测
-- 🔄 **上下文压缩** — Token 超限时自动裁剪历史上下文，防止溢出
+- 🌊 **流式输出** — `StreamHandler` 增量处理器，SSE 分片累积，透明切换流式/非流式
+- 🧠 **事件驱动网关** — `AssistantGateway` 提供 `on_round_initiate` / `on_build_request` / `on_response` / `on_tool_calling` 等十余个钩子，全流程可控
+- 🔧 **丰富的工具集** — 内置文件操作、代码执行、网络请求、技能管理等开箱即用的工具，支持 `BaseTool` → `ToolSetProtocol` 快速扩展
+- 📦 **会话管理** — `AssistantSession` 支持序列化/反序列化，可持久化到文件，会话变量全托管
+- 🔄 **上下文块机制** — `ToolCallingContextsBlock` 将工具调用请求与结果打包管理，保证调用链完整性
+- 🏭 **工厂模式** — `ContextsFactory` / `PydanticModelsFactory` 根据数据自动分派到对应的 Pydantic 模型，扩展新上下文类型零成本
+- 📊 **Token 追踪** — `TokenTracker` 基于 tiktoken 估算 token 用量，支持偏差校准和滑动窗口
+- 🔐 **Key 管理** — 内置 API Key 可用性检测与缓存（O(1) 查找）
+- 🔄 **上下文压缩** — `Compresser` 协议化设计，Token 超限自动裁剪
+- 🎯 **Thinking 支持** — 原生支持 Thinking Modes（disabled/enabled/adaptive）和 Thinking Efforts（none / low / medium / high / xhigh / max）
 - 🍬 **工具语法糖** — `chain_tools_by_instance()` / `chain_tools_by_class()` 快速组合工具集
+- 🧩 **模块化协议设计** — 通过 Protocol 抽象层实现各组件的可替换性
 
 ---
 
@@ -41,8 +44,10 @@ pip install /path/to/aioclaw
 | orjson | >= 3.11.9 |
 | pydantic | >= 2.13.4 |
 | aiofiles | >= 25.1.0 |
+| aiohttp | >= 3.11 |
+| httpx | - |
 | trafilatura | == 2.0.0 |
-| fake-useragent | == 2.2.0 |
+| fake-useragent | - |
 | asyncstdlib | == 3.14.0 |
 | python-frontmatter | - |
 | aioverse | - |
@@ -55,23 +60,25 @@ pip install /path/to/aioclaw
 
 ```python
 import aiohttp
-from aioclaw.core import AssistantCaller, ContextCompresser
-from aioclaw.managers import ModelsManager, ToolsManager
+from aioclaw.core import AssistantGateway
+from aioclaw.managers import ToolsManager
 from aioclaw.tools import (
     CodeOperationTools,
     FileOperationTools,
     NetworkOperationTools,
 )
+from aioclaw.models import (
+    ClawConfig,
+    AssistantSession,
+    AssistantPrompt,
+)
 from aioclaw.utils.syntax_sugar import chain_tools_by_instance
 
-# 1. 准备模型配置
-models_config = [...]  # 你的 ModelConfig 列表
+# 1. 加载配置
+claw_config = ClawConfig.from_file("config.json")
 
-# 2. 初始化管理器
-models_manager  = ModelsManager(models_config)
-tools_manager   = ToolsManager(timeout=30)
-
-# 3. 组装工具集
+# 2. 组装工具集
+tools_manager = ToolsManager(timeout=30)
 final_tools = chain_tools_by_instance(
     CodeOperationTools(),
     FileOperationTools(),
@@ -79,22 +86,29 @@ final_tools = chain_tools_by_instance(
 )
 final_tools.register(tools_manager)
 
-# 4. 初始化调用器
-async with aiohttp.ClientSession() as session:
-    caller = AssistantCaller(
-        models_manager   = models_manager,
-        tool_set         = final_tools,
-        tools_manager    = tools_manager,
-        session          = session,
-        context_presser  = ContextCompresser(),
-    )
+# 3. 创建会话与提示词
+session = AssistantSession(assistant_model_name="gpt-4o")
+prompt = AssistantPrompt()
+prompt.set_role_prompt("你是一个可爱的猫娘 AI~")
 
-    # 5. 选择模型
-    caller.change_model(model_name="gpt-4")
+# 4. 初始化网关
+gateway = AssistantGateway(
+    claw_config=claw_config,
+    assistant_session=session,
+    tools_manager=tools_manager,
+    assistant_prompt=prompt,
+)
 
-    # 6. 开始对话...
-    # async for output in caller.async_assistant_generator(...):
-    #     print(output.content)
+# 5. 选择模型
+gateway.change_model(model_name="gpt-4o")
+
+# 6. 输入内容
+from aioverse.models import UserContext
+await gateway.input(UserContext(content="你好呀~"))
+
+# 7. 启动生成器
+async for output in gateway.async_generator():
+    print(f"[{output.finish_reason}] {output.content}")
 ```
 
 ---
@@ -105,47 +119,72 @@ async with aiohttp.ClientSession() as session:
 aioclaw/
 ├── src/
 │   └── aioclaw/
-│       ├── core/                     # 核心逻辑
-│       │   ├── assistant_caller.py   # AI 助手调用器
-│       │   └── context_compresser.py # 上下文压缩器
-│       ├── managers/                 # 管理器
-│       │   ├── tools_manager.py      # 工具注册与执行管理
-│       │   ├── models_manager.py     # 模型配置管理
-│       │   ├── skills_manager.py     # 技能管理
-│       │   └── keys_manager.py       # API Key 缓存与管理
-│       ├── tools/                    # 工具实现
-│       │   ├── code_operation_tools.py    # 代码执行工具
-│       │   ├── file_operation_tools.py    # 文件操作工具
+│       ├── core/                          # 核心层
+│       │   ├── assistant_gateway.py       # 🔥 事件驱动 AI 网关（核心）
+│       │   ├── compresser.py              # 上下文压缩器
+│       │   └── token_tracker.py           # Token 用量追踪器
+│       ├── managers/                      # 管理器
+│       │   ├── tools_manager.py           # 工具注册与执行管理
+│       │   ├── skills_manager.py          # 技能管理
+│       │   ├── keys_manager.py            # API Key 缓存与管理 (O(1) 查找)
+│       │   └── context_manager.py         # 上下文管理器（代理 ContextsStatus）
+│       ├── tools/                         # 工具实现
+│       │   ├── base_tool.py               # 工具基类（BaseTool → ToolSetProtocol）
+│       │   ├── code_operation_tools.py    # 代码执行工具 (Python + Bash)
+│       │   ├── file_operation_tools.py    # 文件操作工具 (9个)
 │       │   ├── network_operation_tools.py # 网络请求工具
 │       │   ├── skill_operation_tools.py   # 技能操作工具
 │       │   ├── system_operation_tools.py  # 系统操作工具
-│       │   └── _final_tools.py           # 工具聚合器
-│       ├── protocols/                # 抽象协议层
-│       │   ├── context_compress_protocol.py
+│       │   └── _final_tools.py            # 工具聚合器 (O(1) 缓存查找)
+│       ├── protocols/                     # 抽象协议层
+│       │   ├── tool_set_protocol.py
+│       │   ├── tools_manager_protocol.py
 │       │   ├── models_manager_protocol.py
 │       │   ├── skills_manager_protocol.py
-│       │   ├── tools_manager_protocol.py
-│       │   └── tool_set_protocol.py
-│       ├── models/                   # 数据模型
-│       │   ├── skill.py
-│       │   ├── assistant_prompt.py
-│       │   ├── assistant_output.py
-│       │   ├── assistant_runtime.py
-│       │   ├── tool_runtime.py
-│       │   ├── context_compress_result.py
-│       │   ├── config_models/        # 配置模型
-│       │   │   ├── claw_config.py
-│       │   │   ├── base_config.py
-│       │   │   ├── path_config.py
-│       │   │   ├── skills_directory_config.py
-│       │   │   └── assistant_runtime_config.py
-│       │   └── runtime_models/
-│       ├── enums/                    # 枚举
+│       │   ├── context_compress_protocol.py
+│       │   ├── contexts_block_protocol.py # 🔥 上下文块协议
+│       │   └── factory_protocol.py        # 🔥 工厂模式协议
+│       ├── models/                        # 数据模型
+│       │   ├── assistant_session.py       # 🔥 会话模型（可序列化）
+│       │   ├── assistant_prompt.py        # 提示词管理（system + role + metadata）
+│       │   ├── assistant_output.py        # AI 输出模型
+│       │   ├── assistant_key.py           # API Key 模型
+│       │   ├── contexts_status.py         # 🔥 上下文状态（含脏缓存标记）
+│       │   ├── context_compress_result.py # 压缩结果
+│       │   ├── skill.py                   # 技能模型
+│       │   ├── context_blocks/            # 🔥 上下文块
+│       │   │   ├── base_contexts_block.py
+│       │   │   └── tool_calling_contexts_block.py
+│       │   ├── tool_schema/               # 工具 Schema
+│       │   │   ├── tool.py / function.py / parameters.py / argument.py
+│       │   └── config_models/             # 配置模型
+│       │       ├── claw_config.py
+│       │       ├── base_config.py
+│       │       ├── path_config.py
+│       │       ├── env_config.py
+│       │       ├── assistant_model_config.py  # 🔥 模型配置（含 Thinking 支持）
+│       │       ├── skills_directory_config.py
+│       │       └── assistant_runtime_config.py
+│       ├── enums/                         # 枚举
 │       │   ├── file_types.py
-│       │   └── execute_status.py
-│       └── utils/                    # 工具函数
-│           ├── event_waiter.py
-│           └── syntax_sugar.py
+│       │   ├── finish_reasons.py          # 🔥 finish_reason 枚举
+│       │   ├── execute_status.py
+│       │   ├── thinking_modes.py          # 🔥 思考模式 (disabled/enabled/adaptive)
+│       │   └── thinking_efforts.py        # 🔥 思考力度 (none/low/medium/high/xhigh/max)
+│       ├── factories/                     # 🔥 工厂模式
+│       │   ├── pydantic_models_factory.py # Pydantic 模型工厂（优先级+静态验证）
+│       │   └── contexts_factory.py        # 上下文反序列化工厂（全局单例）
+│       ├── mixins/                        # 🔥 Mixin
+│       │   └── value_notifier.py          # 值变更通知（异步事件驱动）
+│       ├── errors/                        # 异常体系
+│       │   ├── base_claw_error.py
+│       │   ├── common_errors.py           # NoKeyAvailableError
+│       │   └── gateway_errors.py          # 网关相关异常
+│       └── utils/
+│           ├── syntax_sugar.py            # 语法糖（工具组合、输出生成）
+│           ├── build_tool_schema.py       # 🔥 快速构建工具 Schema
+│           ├── event_waiter.py            # 异步事件等待器
+│           └── openai_list_to_contexts_list.py
 ├── pyproject.toml
 └── README.md
 ```
@@ -156,140 +195,307 @@ aioclaw/
 
 ### 1️⃣ Core — 核心层
 
-#### AssistantCaller 🧠
+#### AssistantGateway 🧠 — *事件驱动 AI 网关*
 
-AI 助手的核心调用器，负责多轮对话的完整生命周期：
-
-```python
-class AssistantCaller:
-    def __init__(self, models_manager, tool_set, tools_manager,
-                 session, context_presser=None, assistant_prompt=None,
-                 async_log=None): ...
-
-    def change_model(self, **kwargs) -> Tuple[bool, ModelConfig | None]: ...
-
-    async def async_assistant_generator(
-        self, context_manager, assistant_runtime
-    ) -> AsyncIterator[AssistantOutput]: ...
-```
-
-核心流程：
-1. **更新提示词** — 注入 System Prompt 和元数据
-2. **轮询执行** — 在最大轮次内循环：
-   - 检查上下文是否溢出，溢出则自动压缩
-   - 调用 AI 获取响应
-   - 根据 `finish_reason` 判断：
-     - `tool_calls` → 执行工具 → 回填结果 → 继续下一轮
-     - `stop` → 返回最终输出
-3. **Token 追踪** — 每次调用后自动更新 token 用量
-
-#### ContextCompresser 📏
-
-上下文窗口溢出处理器：
+采用事件驱动架构，每个交互环节都有对应的钩子：
 
 ```python
-class ContextCompresser:
-    async def compress(self, context_manager, model_config) -> ContextCompressResult: ...
+class AssistantGateway(ValueNotifier):
+    def __init__(self, *, claw_config, assistant_session,
+                 openai_client=None, tools_manager=None,
+                 assistant_prompt=None, token_tracker=None,
+                 compresser=None): ...
+
+    def change_model(self, model_name: str) -> bool: ...
+    async def input(self, context: BaseContext): ...
+
+    async def async_generator(self) -> Iterator[AssistantOutput]: ...
 ```
 
-- `_is_out()` — 判断 token 是否超过 `model_config.token_limit`
-- `_compress()` — 调用 `context_manager.trim()` 裁剪最早的历史记录
+**事件钩子一览：**
+
+| 钩子 | 触发时机 | 说明 |
+|------|---------|------|
+| `on_round_initiate` | 每轮开始 | 校验状态、注入提示词、同步模型 |
+| `on_build_request` | 构建请求 | 组装 Request（含 tools/thinking/keys） |
+| `on_request` | 发送请求 | 调用 OpenAIClient |
+| `on_response` | 收到响应 | 分发 Tool Calling / Stop 逻辑 |
+| `on_tool_calling` | 工具调用 | 执行工具并打包为 ToolCallingContextsBlock |
+| `on_context` | 普通上下文 | 添加 assistant 回复到上下文 |
+| `on_adding_context` | 添加上下文 | 将上下文块/上下文加入 context_manager |
+| `on_adding_context_block` | 添加上下文块 | 同上，针对 ContextsBlock |
+| `on_build_output` | 生成输出 | 基于 Response 构建 AssistantOutput |
+| `on_round_complete` | 轮次完成 | Token 校准与统计 |
+| `on_round_error` | 轮次异常 | 错误处理 |
+| `on_generator_initiate` | 生成器启动 | 设置 generator_processing 状态 |
+| `on_generator_end` | 生成器结束 | 重置状态 |
+| `on_generator_error` | 生成器异常 | 错误处理 |
+| `on_gateway_close` | 网关关闭 | 关闭 HTTP 会话 |
+
+所有属性支持懒加载：
+
+| 属性 | 默认值 | 说明 |
+|------|--------|------|
+| `token_tracker` | 全局单例 `token_tracker` | Token 追踪 |
+| `compresser` | `NullObject()` | 上下文压缩 (TODO) |
+| `keys_manager` | 空 `KeysManager()` | Key 管理 |
+| `assistant_prompt` | 默认 `AssistantPrompt()` | 系统提示词 |
+| `tools_manager` | 空 `ToolsManager()` | 工具管理器 |
+| `assistant_model_config` | `claw_config.models_config[0]` | 当前模型配置 |
+| `client_session` | `aiohttp.ClientSession()` | HTTP 会话 |
+| `openai_client` | `OpenAIClient(session=...)` | OpenAI 客户端 |
+
+#### TokenTracker 📊 — *Token 用量追踪器*
+
+基于 tiktoken 的 Token 估算与校准：
+
+```python
+class TokenTracker:
+    def __init__(self, default_model="gpt-4o",
+                 calibration_percent=1.05, window_length=100): ...
+
+    def estimate(self, contents: List[str]) -> int: ...
+    def calibrate_defference(self, guessed: int, actual: int): ...
+```
+
+- 滑动窗口偏差校准（默认 100 轮）
+- 保守偏大处理（`calibration_percent = 1.05`）
+- 全局单例 `token_tracker`
+
+#### Compresser 📏 — *上下文压缩器*
+
+```python
+class Compresser(ContextCompressProtocol):
+    async def _is_out(self, current_tokens, cleanup_threshold) -> bool: ...
+    async def _compress(self, contexts) -> None: ...
+    async def compress(self, **kwargs) -> ContextCompressResult: ...
+```
 
 ---
 
-### 2️⃣ Tools — 工具集
+### 2️⃣ Models — 数据模型层 🔥
+
+#### AssistantSession — *会话管理*
+
+```python
+class AssistantSession(BaseModel):
+    session_uuid: UUID                       # 会话唯一标识
+    context_manager: ContextManager          # 上下文管理器
+    assistant_model_name: str                # 当前模型名 【必填】
+    assistant_think_mode: ThinkingModes      # 思考模式 (默认 ENABLED)
+    assistant_think_effort: ThinkingEfforts  # 思考强度 (默认 MAX)
+
+    # Setters
+    def set_model_name(self, name: str): ...
+    def set_think_mode(self, mode: ThinkingModes): ...
+    def set_think_effort(self, effort: ThinkingEfforts): ...
+
+    # 持久化
+    def to_file(self, path: str): ...
+    @classmethod
+    def from_file(cls, path: str) -> Self: ...
+```
+
+#### ContextsStatus — *上下文状态（带脏缓存）*
+
+```python
+class ContextsStatus(BaseModel):
+    contexts: List[BaseContextsBlock | BaseContext]
+    prompt: SystemContext | None
+    token: int
+
+    def flatten_contexts(self, filter_prompt=False) -> List[BaseContext]: ...
+```
+
+- 自动脏缓存标记：修改后重建扁平列表
+- 可选过滤 prompt
+
+#### ContextsBlock — *上下文块*
+
+```python
+class BaseContextsBlock(ContextsBlockProtocol):
+    contexts: List[BaseContext]
+    # 支持迭代、增删
+
+class ToolCallingContextsBlock(BaseContextsBlock):
+    tool_calling: ToolCallingContext
+    tool_outputs: List[ToolOutputContext]
+    def is_complete(self) -> bool: ...  # 验证调用链完整性
+```
+
+#### AssistantModelConfig — *模型配置*
+
+```python
+class AssistantModelConfig(BaseConfig):
+    api_url: str
+    model_name: str
+    model_keys: List[AssistantKey]
+
+    # Thinking 支持
+    support_thinking: bool
+
+    # 上下文窗口
+    max_context_length: int          # 模型明确的上下文长度
+    cleanup_threshold: int           # 触发清理的阈值（默认 75%）
+
+    # 能力标识
+    support_tool: bool               # 是否支持工具调用
+    support_image / video / audio    # 多模态支持
+```
+
+`cleanup_threshold` 如果未设置，会自动计算为 `max_context_length * 0.75`。
+
+#### AssistantPrompt — *提示词管理*
+
+```python
+class AssistantPrompt(BaseModel):
+    system_prompt: str          # 系统级提示词（有默认值）
+    role_prompt: str            # 角色扮演提示词
+    metadata: Dict[str, Any]    # 元数据
+
+    def set_system_prompt(self, prompt: str): ...
+    def set_role_prompt(self, prompt: str): ...
+    def set_metadata(self, key: str, value: Any): ...
+```
+
+#### ClawConfig — *顶层配置*
+
+```python
+class ClawConfig(BaseConfig):
+    models_config: List[AssistantModelConfig]
+    paths_config: List[PathConfig]
+    skills_config: SkillsDirectoryConfig
+    assistant_runtime_config: AssistantRuntimeConfig
+```
+
+---
+
+### 3️⃣ Factories — 工厂模式 🔥
+
+#### PydanticModelsFactory — *Pydantic 模型工厂*
+
+```python
+class PydanticModelsFactory(FactoryProtocol):
+    def register(self, class_, priority=1): ...
+    def dispatcher(self, data) -> BaseModel | None: ...
+```
+
+- **两步验证**：先静态检查必填字段名，再 Pydantic 验证
+- 按注册优先级顺序尝试匹配
+- 找到第一个验证通过的模型即返回
+
+#### ContextsFactory — *上下文工厂（全局单例）*
+
+```python
+contexts_factory = ContextsFactory()
+contexts_factory.register(ToolCallingContext)       # priority=1 (role=assistant, 先于 AssistantContext)
+contexts_factory.register(ToolOutputContext)        # priority=2
+contexts_factory.register(SystemContext)             # priority=3
+contexts_factory.register(AssistantContext)          # priority=4
+contexts_factory.register(UserContext)               # priority=5
+contexts_factory.register(BaseContext)               # priority=6 (兜底)
+```
+
+> ⚠️ `ToolCallingContext` 的 `role` 也是 `assistant`，必须注册在 `AssistantContext` 之前！
+
+---
+
+### 4️⃣ Mixins — ValueNotifier 🔥
+
+```python
+class ValueNotifier:
+    def change(self, name: str, value: Any): ...   # 修改属性并通知所有等待者
+    async def wait_change(self) -> True: ...       # 等待下一次变更
+```
+
+`AssistantGateway` 继承自 `ValueNotifier`，可实现异步等待网关状态变更：
+
+```python
+# 外部等待一轮处理完成
+await gateway.wait_for_round_process(timeout=30)
+await gateway.wait_for_generator_process(timeout=180)
+```
+
+---
+
+### 5️⃣ Tools — 工具集
 
 | 工具集 | 工具函数 | 说明 |
 |--------|---------|------|
-| **CodeOperationTools** | `python_runner` | 运行 Python 代码（带超时 & 输出截断） |
-| | `bash_runner` | 执行 Bash 指令（支持管道 & 工作目录） |
-| **FileOperationTools** | `read_file` / `read_file_lines` | 读取文件内容 |
-| | `write_file` | 写入文件（支持 w / a 模式） |
+| **CodeOperationTools** | `python_runner` | 运行 Python 代码（同步/异步自动适配） |
+| | `bash_runner` | 执行 Bash 指令（异步 subprocess） |
+| **FileOperationTools** | `read_file` | 读取文件 |
+| | `write_file` | 写入文件 |
 | | `copy_full_file` | 复制文件 |
-| | `change_file_line` | 修改文件指定行（支持原数据验证） |
+| | `change_file_line` | 修改文件行 |
 | | `delete_file` | 删除文件 |
-| | `scan_directory` | 列出目录内容 |
-| | `find_in_file` | 关键词搜索文件内容 |
-| | `create_directory` | 递归创建目录 |
-| **NetworkOperationTools** | `fetch_url` | HTTP 请求（支持 GET/POST，自动转 Markdown） |
+| | `scan_directory` | 列出目录 |
+| | `find_in_file` | 搜索文件内容 |
+| | `create_directory` | 创建目录 |
+| **NetworkOperationTools** | `fetch_url` | HTTP 请求 |
 | **SkillOperationTools** | `find_skills` / `read_skill` | 技能搜索与读取 |
+| **SystemOperationTools** | 系统相关工具 | - |
 
-> 💡 使用 `chain_tools_by_instance()` 或 `chain_tools_by_class()` 快速组合多个工具集。
+#### BaseTool → ToolSetProtocol
+
+```python
+class BaseTool(ToolSetProtocol):
+    def register(self, tools_manager: ToolsManagerProtocol):
+        super().register(tools_manager)
+```
+
+所有工具集继承 `BaseTool`，统一注册接口。需要在子类 `register` 中调用 `tools_manager.register(func, schema)`。
+
+#### _FinalTools — *工具聚合器*
+
+```python
+class _FinalTools:
+    def __init__(self, *tool_instances): ...
+    def __getattr__(self, name: str): ...     # O(1) 缓存查找
+    def register(self, tools_manager): ...    # 一键注册所有工具
+```
+
+支持 O(1) 工具查找缓存，组合多个工具集一键注册。
 
 ---
 
-### 3️⃣ Managers — 管理器层
+### 6️⃣ Utils — 工具函数
 
-#### ToolsManager
-
-工具注册与安全执行的核心：
+#### build_tool_schema — *快速构建工具 Schema*
 
 ```python
-class ToolsManager:
-    def __init__(self, timeout: int = 30): ...
-    def register(self, func, schema): ...        # 注册工具
-    async def execute_tool(self, tool_calling): ...  # 安全执行
-    def to_list(self): ...                       # 导出 OpenAI 格式
+from aioclaw.utils import build_tool_schema
+
+tool = build_tool_schema(
+    tool_name="get_weather",
+    tool_description="获取天气",
+    arguments={
+        "location": ("string", "城市名称"),               # 二元组 = 必填
+        "unit": ("string", "温度单位", "celsius"),        # 三元组 = 含默认值
+    }
+)
 ```
 
-- 支持同步/异步函数自动适配（通过 `func2coro`）
-- 安全执行超时保护（通过 `safe_execute_tool`）
-- 按函数名 O(1) 查找
-
-#### ModelsManager
+#### 工具组合语法糖 🍬
 
 ```python
-class ModelsManager:
-    def find_model(self, model_name=None, model_alias=None, api_url=None): ...
+# 实例组合
+tools = chain_tools_by_instance(
+    CodeOperationTools(),
+    FileOperationTools(),
+)
+
+# 类组合（Mixin）
+MyToolSet = chain_tools_by_class(
+    CodeOperationTools,
+    FileOperationTools,
+    name="MyAwesomeToolSet",
+)
 ```
-
-支持按名称、别名、URL 三个维度查找模型配置。
-
-#### SkillsManager
-
-```python
-class SkillsManager:
-    def find(self, keywords: str) -> List[Skill]: ...
-    def add(self, skill: Skill): ...
-    def remove(self, skill: Skill): ...
-    def get_by_name(self, skill_name: str) -> Skill | None: ...
-```
-
-关键词匹配支持：技能名、描述、内容三个字段。
-
-#### KeysManager
-
-```python
-class KeysManager:
-    def get_available_key(self) -> AssistantKey | None: ...
-```
-
-- 缓存机制：优先返回上次缓存的可用 Key（O(1)）
-- 兜底遍历：缓存失效时遍历所有 Key
 
 ---
 
-### 4️⃣ Models — 数据模型
-
-| 模型 | 说明 |
-|------|------|
-| `ClawConfig` | 顶层配置，聚合模型、路径、技能、运行时配置 |
-| `BaseConfig` | 基础配置基类 |
-| `PathConfig` | 文件/目录路径配置，支持自动读取文件内容或创建目录 |
-| `SkillsDirectoryConfig` | 技能目录配置，自动扫描 `.md` 文件加载技能 |
-| `AssistantRuntimeConfig` | 运行时参数（最大轮次、超时时间） |
-| `AssistantRuntime` | 运行时状态跟踪（当前轮次、工具调用次数、响应类型） |
-| `ToolRuntime` | 单个工具的执行状态跟踪 |
-| `Skill` | 技能模型（支持 Markdown 前页元数据解析为 name/description/version） |
-| `AssistantPrompt` | 提示词管理（系统提示词 + 人设 + 元数据 + 已学技能） |
-| `AssistantOutput` | AI 输出模型（响应类型、内容、思维链） |
-| `ContextCompressResult` | 上下文压缩结果（是否溢出、是否已压缩） |
-
----
-
-### 5️⃣ Protocols — 协议层
-
-所有核心组件均通过抽象协议定义接口，方便替换实现：
+### 7️⃣ Protocols — 协议层
 
 | 协议 | 方法 | 说明 |
 |------|------|------|
@@ -298,19 +504,57 @@ class KeysManager:
 | `SkillsManagerProtocol` | `find`, `add`, `remove` | 技能管理器接口 |
 | `ContextCompressProtocol` | `compress`, `_is_out`, `_compress` | 上下文压缩器接口 |
 | `ToolSetProtocol` | `register` | 工具集接口 |
+| `ContextsBlockProtocol` | `__iter__`, `__len__`, `delete`, `insert`, `append` | 上下文块接口 |
+| `FactoryProtocol` | `register`, `dispatcher` | 工厂模式接口 |
 
 ---
 
-### 6️⃣ Errors — 异常体系
+### 8️⃣ Errors — 异常体系
 
 ```
 BaseClawError
-└── BaseAssistantError
-    ├── ClientNotReady        # 客户端未就绪（未选择模型）
-    ├── MaxRoundLimit         # 超出对话轮次限制
-    ├── AssistantCallError    # AI 调用失败
-    ├── ModelConfigNotFound   # 模型配置未找到
-    └── UnknownResponseType   # 未知的 finish_reason 类型
+├── NoKeyAvailableError              # 无可用 API Key
+└── BaseGatewayError
+    ├── UnknownFinishReasonError     # 未识别的 finish_reason
+    ├── RuntimeInputAdditionError    # 运行中尝试添加输入
+    ├── ModelConfigMissingError      # 无可用模型配置
+    ├── IncompleteToolCallBlockError # 工具调用块不完整
+    └── GatewayBusyError             # 网关忙
+```
+
+---
+
+## 配置示例 ⚙️
+
+```json
+{
+    "models_config": [
+        {
+            "model_name": "gpt-4o",
+            "api_url": "https://api.openai.com/v1/chat/completions",
+            "model_keys": [{"key": "sk-xxx"}],
+            "max_context_length": 128000,
+            "support_tool": true,
+            "support_thinking": true
+        }
+    ],
+    "paths_config": [
+        {
+            "name": "sessions_path",
+            "path": "/data/sessions/",
+            "type": "directory"
+        }
+    ],
+    "skills_config": {
+        "name": "main_skills",
+        "path": "/data/skills/",
+        "type": "directory"
+    },
+    "assistant_runtime_config": {
+        "max_round": 50,
+        "timeout": 300
+    }
+}
 ```
 
 ---
@@ -327,93 +571,25 @@ version: 1.0.0
 ---
 
 # 技能内容
-
 这里是技能的具体实现逻辑...
 ```
 
-通过 `SkillsDirectoryConfig` 自动扫描目录加载所有 `.md` 技能文件，转换为 `Skill` 对象供 `SkillsManager` 管理。
+通过 `SkillsDirectoryConfig` 自动扫描目录加载所有 `.md` 技能文件，转换为 `Skill` 对象~
 
 ---
 
-## 工具组合语法糖 🍬
+## 🤔 已知优化点（待改进）
 
-提供两种方式组合多个工具集：
-
-### 实例组合
-
-```python
-from aioclaw.utils.syntax_sugar import chain_tools_by_instance
-
-tools = chain_tools_by_instance(
-    CodeOperationTools(),
-    FileOperationTools(),
-    NetworkOperationTools(),
-)
-tools.register(tools_manager)  # 一键注册所有工具
-```
-
-### 类组合（Mixin）
-
-```python
-from aioclaw.utils.syntax_sugar import chain_tools_by_class
-
-MyToolSet = chain_tools_by_class(
-    CodeOperationTools,
-    FileOperationTools,
-    name="MyAwesomeToolSet",
-)
-```
-
----
-
-## 配置示例 ⚙️
-
-```python
-from aioclaw.models.config_models import ClawConfig
-
-# 从文件加载配置
-config = ClawConfig.from_file("config.json")
-
-# 配置结构
-# config.models_config              # 模型配置列表
-# config.paths_config               # 路径配置列表
-# config.skills_config              # 技能目录配置
-# config.assistant_runtime_config   # 运行时配置
-```
-
-### ClawConfig JSON 示例
-
-```json
-{
-    "models_config": [
-        {
-            "model_name": "gpt-4o",
-            "model_alias": "GPT4o",
-            "api_url": "https://api.openai.com/v1/chat/completions",
-            "model_keys": ["sk-xxx"],
-            "token_limit": 128000,
-            "support_tool": true
-        }
-    ],
-    "paths_config": [
-        {
-            "name": "sessions_path",
-            "path": "/data/sessions/"
-        }
-    ],
-    "skills_config": [
-        {
-            "name": "main_skills",
-            "path": "/data/skills/",
-            "is_directory": true
-        }
-    ],
-    "assistant_runtime_config": {
-        "max_rounds": 20,
-        "timeout": 120
-    }
-}
-```
+| # | 位置 | 问题 | 建议 |
+|---|------|------|------|
+| 1 | `AssistantGateway` | `on_round_error` / `on_generator_error` 目前直接 `raise exception`（标记 HACK） | 应实现结构化错误处理，如自动重试、降级模型 |
+| 2 | `ContextsStatus` | `flatten_contexts` 每次脏了就全量重建列表 | 可考虑增量更新策略，或引入 LRU 缓存 |
+| 3 | `ToolsManager.to_list()` | 每次调用遍历所有 schema 调用 `model_dump()` | 可缓存序列化结果，注册时失效缓存 |
+| 4 | `BaseTool.register` | 调了 `super().register()` 但父协议是空的 | 可去掉 `super()` 调用，或改为在基类中做注册校验 |
+| 5 | `ValueNotifier` | `change()` 后直接 `clear()` 所有 waiter，新的 `wait_change()` 调用者可能错过通知 | 考虑引入版本号机制，避免 ABA 问题 |
+| 6 | `KeysManager` | 缓存的 key 变不可用后需要 O(n) 遍历 | 可维护一个可用 key 的索引集合 |
+| 7 | `Compresser` | 目前返回 `NullObject()`，压缩逻辑未实现 | 需要实现实际的上下文摘要/裁剪策略 |
+| 8 | `ContextManager` | 纯粹代理 `ContextsStatus`，增加了不必要的间接层 | 可直接让 `AssistantSession` 持有 `ContextsStatus` |
 
 ---
 
@@ -423,4 +599,4 @@ MIT License ~ 杂鱼们随便用哦！(๑¯◡¯๑)
 
 ---
 
-> **Made with ❤️ by 喵璃也认可的开发者们~**
+> **Made with ❤️ by 乃依超可爱 & 喵璃也认可的开发者们~**

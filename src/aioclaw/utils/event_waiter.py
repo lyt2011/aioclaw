@@ -1,6 +1,7 @@
+from __future__ import annotations
 import asyncio
 
-from typing import Awaitable, Any
+from typing import Awaitable, Any, Union
 
 
 # 异步事件等待
@@ -8,7 +9,7 @@ async def async_event_waiter(
 	self,
 	coro	: Awaitable,
 	timeout	: int = 30
-) -> Any | None: # 要么返回任务返回 要么返回None
+) -> Union[Any, None]: # 要么返回任务返回 要么返回None
 	
 	try:
 	

@@ -1,8 +1,11 @@
+from __future__ import annotations
+from .context_compress_protocol	import ContextCompressProtocol
+from .contexts_block_protocol	import ContextsBlockProtocol
+from .factory_protocol			import FactoryProtocol
 from .models_manager_protocol	import ModelsManagerProtocol
 from .skills_manager_protocol	import SkillsManagerProtocol
-from .context_compress_protocol	import ContextCompressProtocol
-from .tools_manager_protocol	import ToolsManagerProtocol
 from .tool_set_protocol			import ToolSetProtocol
+from .tools_manager_protocol	import ToolsManagerProtocol
 
 
 __all__ = [
@@ -10,5 +13,7 @@ __all__ = [
 	"ContextCompressProtocol",
 	"SkillsManagerProtocol",
 	"ModelsManagerProtocol",
-	"ToolSetProtocol"
+	"ToolSetProtocol",
+	"ContextsBlockProtocol",
+	"FactoryProtocol"
 ]

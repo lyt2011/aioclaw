@@ -1,23 +1,26 @@
-from ..protocols	import ToolSetProtocol, ToolsManagerProtocol
+from __future__ import annotations
 
-from aioverse.utils.syntax_sugar import build_tool_schema
-
-from io			import StringIO
-from contextlib	import redirect_stdout, redirect_stderr
-from asyncio	import create_subprocess_shell
+from ..protocols	import ToolsManagerProtocol
+from ..utils		import build_tool_schema, kill_async_proc
+from .base_tool		import BaseTool
 
 import asyncio
 import traceback
+import tempfile
+import sys
+
+
+TEMP_DICTIONARY = tempfile.gettempdir()
 
 
 # py代码运行
 PythonRunnerSchema = build_tool_schema(
 	tool_name			= "python_runner",
 	tool_description	= "运行python代码",
-	requirements		= ["code"],
 	arguments			= {
 		"code"			: ("string", "需要运行的代码"),
 		"timeout"		: ("integer", "运行超时 单位为秒", 10),
+		"work_directory": (["string", "null"], "工作目录 默认为临时文件目录", None),
 		"output_limit"	: ("integer", "输出长度限制 超过则后续部分使用'...'截断", 800)
 	}
 )
@@ -26,21 +29,16 @@ PythonRunnerSchema = build_tool_schema(
 BashRunnerSchema = build_tool_schema(
 	tool_name			= "bash_runner",
 	tool_description	= "运行bash指令，支持管道",
-	requirements		= ["command"],
 	arguments			= {
 		"command"		: ("string", "需要运行的指令"),
 		"timeout"		: ("integer", "运行超时 单位为秒", 10),
-		"work_directory": (["string", "null"], "工作目录 默认为当前目录", None),
+		"work_directory": (["string", "null"], "工作目录 默认为临时文件目录", None),
 		"output_limit"	: ("integer", "输出长度限制 超过则后续部分使用'...'截断", 800)
 	}
 )
 
 
-class CodeOperationTools(ToolSetProtocol):
-	
-	def __init__(self, *args, **kwargs):
-		
-		super().__init__(*args, **kwargs)
+class CodeOperationTools(BaseTool):
 	
 	def register(self, tools_manager: ToolsManagerProtocol):
 		
@@ -49,79 +47,70 @@ class CodeOperationTools(ToolSetProtocol):
 		tools_manager.register(self.python_runner, PythonRunnerSchema)
 		tools_manager.register(self.bash_runner, BashRunnerSchema)
 		
-		return None
-	
 	async def python_runner(
 		self,
-		code		: str,
-		timeout		: int = 10,
-		output_limit: int = 800
+		code			: str,
+		work_directory	: Optional[str]	= None,
+		timeout			: int			= 10,
+		output_limit	: int			= 800
 	) -> str:
 	
-		code_buffer = StringIO()
+		"""python代码执行"""
 		
-		def _runner(code: str) -> str:
-		
-			with redirect_stdout(code_buffer), redirect_stderr(code_buffer):
-				
-				try				: exec(code)
-				except Exception: traceback.print_exc() # 错误信息打印到stderr
-		
-			return None
-		
-		coro = asyncio.to_thread(_runner, code)
-		
-		try:
-			
-			await asyncio.wait_for(coro, timeout=timeout)	
-		
-		# 仅捕获代码超时
-		except asyncio.TimeoutError:
-			
-			code_buffer.write("代码运行超时")
-		
-		output = code_buffer.getvalue()
-		
-		return (
-			f"{output[:output_limit]}" if len(output) > output_limit
-			else output
-		)
-	
-	async def bash_runner(
-		self,
-		command			: str,
-		timeout			: int = 10,
-		work_directory	: str | None = None,
-		output_limit	: int = 800
-	) -> str:
-		
-		"""居然有异步执行器😋😋😋"""
-		
-		proc = await create_subprocess_shell(
-			cmd		= command,
-			cwd		= work_directory,
+		proc = await asyncio.create_subprocess_exec(
+			sys.executable, "-c", code,
+			cwd		= work_directory or TEMP_DICTIONARY,
 			stdout	= asyncio.subprocess.PIPE,
 			stderr	= asyncio.subprocess.STDOUT
 		)
 		
 		try:
 			
-			output, _ = await asyncio.wait_for(
-				proc.communicate(),
-				timeout	= timeout
-			)
-			output	= output.decode()
+			output, _	= await asyncio.wait_for(proc.communicate(), timeout=timeout)
+			output		= output.decode()
 		
 		except asyncio.TimeoutError:
-			
 			output = "代码执行超时"
 		
 		finally:
-			
 			if proc.returncode is None:
+				await kill_async_proc(proc)
+		
+		if len(output) > output_limit:
+			output = f"{output[:output_limit]}..."
 				
-				proc.kill()
-				await proc.wait()
+		return output
+	
+	async def bash_runner(
+		self,
+		command			: str,
+		timeout			: int			= 10,
+		work_directory	: Optional[str]	= None,
+		output_limit	: int			= 800
+	) -> str:
+		
+		"""终端指令执行"""
+		
+		proc = await asyncio.create_subprocess_shell(
+			cmd		= command,
+			cwd		= work_directory or TEMP_DICTIONARY,
+			stdout	= asyncio.subprocess.PIPE,
+			stderr	= asyncio.subprocess.STDOUT
+		)
+		
+		try:
+			
+			output, _	= await asyncio.wait_for(proc.communicate(), timeout=timeout)
+			output		= output.decode()
+		
+		except asyncio.TimeoutError:
+			output = "代码执行超时"
+		
+		finally:
+			if proc.returncode is None:
+				await kill_async_proc(proc)
+		
+		if len(output) > output_limit:
+			output = f"{output[:output_limit]}..."
 				
-		# 对输出进行裁剪
-		return f"{output[:output_limit]}..." if len(output) > output_limit else output
+		return output

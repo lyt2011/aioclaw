@@ -1,11 +1,18 @@
-from ..protocols	import ToolsManagerProtocol
-
-from aioverse.models	import ToolCalling, Tool, ToolOutput
-
-from typing import List, Dict, Tuple, Awaitable, Any, Callable
+from __future__ import annotations
 
 import orjson
+
+from ..protocols	import ToolsManagerProtocol
+from aioverse.models	import ToolOutputContext
+
+from typing import List, Dict, Tuple, Awaitable, Any, Callable, TYPE_CHECKING
 import asyncio
+
+
+if TYPE_CHECKING:
+	
+	from ..models			import Tool
+	from aioverse.models	import ToolCallingContext
 
 
 # 辅助方法 安全的工具执行
@@ -42,14 +49,12 @@ class ToolsManager(ToolsManagerProtocol):
 	def register(self, func: callable, schema: Tool):
 				
 		if func.__name__ not in self.schema:
-			
 			self.schema[func.__name__] = (func, schema)
 		
-		return None
+	def set_timeout(self, timeout: int):
+		self.timeout = timeout
 	
-	def set_timeout(self, timeout: int): self.timeout = timeout
-	
-	async def execute_tool(self, tool_calling: ToolCalling) -> ToolOutput:
+	async def execute_tool(self, tool_calling: ToolCallingContext) -> ToolOutputContext:
 		
 		"""
 		使工具调用不会崩溃 优化可读性
@@ -59,18 +64,19 @@ class ToolsManager(ToolsManagerProtocol):
 		tool_id		= tool_calling.id
 		
 		if tool_name in self.schema:
-		
 			func, _			= self.schema[tool_name]
 			tool_arguments	= orjson.loads(tool_calling.function.arguments)
 			tool_coro		= func2coro(func, **tool_arguments)
 			tool_output		= await safe_execute_tool(tool_coro, timeout=self.timeout)
 		
 		else:
-			
 			tool_output	= f"无法调用不存在的工具: {tool_name}"
 		
-		return ToolOutput(tool_call_id=tool_id, content=tool_output)
+		return ToolOutputContext(tool_call_id=tool_id, content=tool_output)
 	
 	def to_list(self) -> List[Dict[str, Any]]:
 		
 		return [schema.model_dump() for _, schema in self.schema.values()]
+
+
+tools_manager = ToolsManager()

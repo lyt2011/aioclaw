@@ -1,9 +1,10 @@
 # 类型两件套
 from pydantic	import BaseModel, ConfigDict
-from typing		import Dict, Optional, Any, Literal
+import frontmatter
+
+from typing		import Optional, Literal, Self
 
 # markdown解析实现
-import frontmatter
 
 
 class Skill(BaseModel):
@@ -31,20 +32,14 @@ class Skill(BaseModel):
 		path	: str,
 		format	: Literal["markdown", "json"] = "markdown",
 		encoding: str = "utf-8"
-	) -> "cls":
+	) -> Self:
+
+		with open(path, "r", encoding=encoding) as file:
+			file_content = file.read()
 		
-		if format == "markdown":
-			
-			with open(path, "r", encoding=encoding) as file:
-			
-				markdown = file.read()
-			
-			return cls.from_markdown(markdown)
-		
+		if format == "json":
+			return cls.model_validate_json(file_content)
 		else:
-			
-			with open(path, "rb") as file:
-				
-				json_bytes = file.read()
-			
-			return cls.model_validate(orjson.loads(json_bytes))
+			return cls.from_markdown(file_content)
+		
+		raise RuntimeError(f"未知格式: {format}")
