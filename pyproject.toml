@@ -1,6 +1,6 @@
 [project]
 name = "aioclaw"
-version = "0.2.1"
+version = "0.2.2"
 description = "基于 aioverse 构建的 AI Agent 框架"
 readme = "README.md"
 requires-python = ">=3.11"

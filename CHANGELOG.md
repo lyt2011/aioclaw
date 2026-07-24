@@ -1,3 +1,23 @@
+# 0.2.2 更新日志
+
+## 新增
+
+1. `ContextCompressionMixin` 上下文压缩能力
+   - 支持软阈值 API Markdown Memory 压缩
+   - 支持可选本地 `Compresser` 硬阈值保护
+   - 压缩失败、无收益或响应异常时保留原会话并回滚
+2. `ClawConfig` 新增上下文压缩配置
+   - `context_compression_keep_contexts`
+   - `context_compression_max_tokens`
+3. 新增上下文压缩、Gateway 生命周期和 `StreamHandler` 回归测试
+
+## 文档
+
+1. 更新 README 的安装、配置、调用链、工具、上下文压缩和开发验证说明
+2. 补充 `CONTEXT_COMPRESSION_DESIGN.md` 设计记录
+
+---
+
 # 0.2.1 更新日志
 
 ## 新增

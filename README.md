@@ -1,7 +1,7 @@
 # aioclaw 🐾
 
 [![Python Version](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.2.1-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.2-green)](CHANGELOG.md)
 
 > 基于 **aioverse** 构建的异步 AI Agent 框架。它把 OpenAI 兼容请求、工具调用、多轮上下文、SSE 增量合并和会话持久化收进一条可扩展的调用链里喵。
 
@@ -629,6 +629,6 @@ aioclaw/
 
 ## 更新记录 📜
 
-请查看 [CHANGELOG.md](CHANGELOG.md)。当前版本为 **0.2.1**，包含 SSE 流式处理、`StreamHandler`、模型级流式开关和 Gateway 上下文压缩。
+请查看 [CHANGELOG.md](CHANGELOG.md)。当前版本为 **0.2.2**，包含 SSE 流式处理、`StreamHandler`、模型级流式开关和 Gateway 上下文压缩。
 
 > Made with 🐾 — 欢迎按自己的业务覆写 Gateway 钩子，但别把上下文调用链拆坏了喵。
