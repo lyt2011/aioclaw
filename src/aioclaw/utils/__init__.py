@@ -18,7 +18,7 @@ __all__ = [
 	"async_event_waiter",
 	"build_tool_schema",
 	
-	# syntax_sugar
+	# 语法糖工具
 	"generate_assistant_output_by_response",
 	"chain_tools_by_class",
 	"chain_tools_by_instance",

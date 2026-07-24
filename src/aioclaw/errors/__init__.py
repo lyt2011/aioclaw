@@ -1,30 +1,32 @@
 from __future__ import annotations
 from .base_claw_error	import BaseClawError
 from .common_errors		import NoKeyAvailableError
-from .gateway_errors	import (
+from .gateway_errors		import (
 	BaseGatewayError,
 	UnknownFinishReasonError,
 	RuntimeInputAdditionError,
 	ModelConfigMissingError,
 	IncompleteToolCallBlockError,
-	GatewayBusyError
+	GatewayBusyError,
+	ContextOverflowError
 )
 
 
 __all__ = [
 	
-	# base
+	# 基础错误
 	"BaseClawError",
 	
-	# common_errors
+	# 通用错误
 	"NoKeyAvailableError",
 	
-	# gateway_errors
+	# 网关错误
 	"BaseGatewayError",
 	"UnknownFinishReasonError",
 	"RuntimeInputAdditionError",
 	"ModelConfigMissingError",
 	"IncompleteToolCallBlockError",
-	"GatewayBusyError"
+	"GatewayBusyError",
+	"ContextOverflowError"
 
 ]

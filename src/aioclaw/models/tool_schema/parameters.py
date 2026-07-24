@@ -16,7 +16,7 @@ class Parameters(BaseModel):
 	@model_serializer(mode="wrap")
 	def serialize(self, handler) -> Dict[str, Any]:
 		
-		"""序列化时 如果 required 为空列表则移除该字段"""
+		"""序列化时，如果 required 为空列表则移除该字段。"""
 		
 		data = handler(self)
 		

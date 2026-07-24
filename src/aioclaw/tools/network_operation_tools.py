@@ -10,7 +10,7 @@ from .base_tool		import BaseTool
 from typing			import Optional, Dict, Any
 
 
-# 访问url静态内容
+# 访问 URL 静态内容
 FetchUrlSchema = build_tool_schema(
 	tool_name			= "fetch_url",
 	tool_description	= "访问url的静态内容",
@@ -34,7 +34,7 @@ class NetworkOperationTools(BaseTool):
 		
 		tools_manager.register(self.fetch_url, FetchUrlSchema)
 	
-	# 辅助方法 解析html
+	# 辅助方法：解析 HTML
 	def _html2markdown(self, html: str, **kwargs) -> Any:
 		
 		response_markdown	= trafilatura.extract(
@@ -59,13 +59,13 @@ class NetworkOperationTools(BaseTool):
 		timeout	: int							= 10
 	) -> str:
 		
-		# 请求头
+		# 请求头处理
 		headers = {
 			"User-Agent": UserAgent().random,
 			**(headers if headers else {})
 		}
 		
-		# 对参数进行校验
+		# 校验请求参数
 		if content: 
 			content = content.encode(encoding)
 		

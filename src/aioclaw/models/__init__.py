@@ -25,25 +25,26 @@ from .assistant_output			import AssistantOutput
 from .assistant_prompt			import AssistantPrompt
 from .assistant_session			import AssistantSession
 from .assistant_key				import AssistantKey
-from .context_compress_result	import ContextCompressResult
+from .context_compress_result		import ContextCompressResult
+from .context_compression_prompt	import ContextCompressionPrompt
 from .skill						import Skill
 from .contexts_status			import ContextsStatus
 
 
 __all__ = [
 	
-	# context_blocks
+	# 上下文块
 	"BaseContextsBlock",
 	"ToolCallingContextsBlock",
 
-	# tool_schema
+	# 工具 Schema
 	"EmptyObject",
 	"Argument",
 	"Parameters",
 	"Function",
 	"Tool",
 	
-	# config_models
+	# 配置模型
 	"BaseConfig",
 	"PathConfig",
 	"EnvConfig",
@@ -56,5 +57,6 @@ __all__ = [
 	"AssistantPrompt",
 	"AssistantSession",
 	"ContextCompressResult",
+	"ContextCompressionPrompt",
 	"ContextsStatus"
 ]

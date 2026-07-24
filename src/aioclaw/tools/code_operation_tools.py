@@ -13,7 +13,7 @@ import sys
 TEMP_DICTIONARY = tempfile.gettempdir()
 
 
-# py代码运行
+# 执行 Python 代码
 PythonRunnerSchema = build_tool_schema(
 	tool_name			= "python_runner",
 	tool_description	= "运行python代码",
@@ -25,7 +25,7 @@ PythonRunnerSchema = build_tool_schema(
 	}
 )
 
-# bash指令运行
+# 执行 Shell 指令
 BashRunnerSchema = build_tool_schema(
 	tool_name			= "bash_runner",
 	tool_description	= "运行bash指令，支持管道",
@@ -55,7 +55,7 @@ class CodeOperationTools(BaseTool):
 		output_limit	: int			= 800
 	) -> str:
 	
-		"""python代码执行"""
+		"""执行 Python 代码。"""
 		
 		proc = await asyncio.create_subprocess_exec(
 			sys.executable, "-c", code,
@@ -89,7 +89,7 @@ class CodeOperationTools(BaseTool):
 		output_limit	: int			= 800
 	) -> str:
 		
-		"""终端指令执行"""
+		"""执行终端指令。"""
 		
 		proc = await asyncio.create_subprocess_shell(
 			cmd		= command,

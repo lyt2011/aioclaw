@@ -13,12 +13,12 @@ class SkillsManager(SkillsManagerProtocol):
 	
 	def __init__(self, skills: List[Skill]):
 		
-		# 建立引索表 实现O(1)查找
+		# 建立索引表，实现 O(1) 查找
 		self.skills = {skill.name: skill for skill in skills}
 	
 	def find(self, *keywords) -> List[Skill]:
 		
-		"""这个应该叫做match(匹配才对)"""
+		"""这个方法更准确的名称应该是 match（匹配）"""
 		
 		# 已经找到的
 		found_skills = []

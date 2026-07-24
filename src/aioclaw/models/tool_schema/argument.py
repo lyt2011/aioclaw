@@ -21,7 +21,7 @@ _FIELD_ALIAS_MAP = {
 
 class Argument(BaseModel):
 	
-	"""工具参数 Schema 定义 支持 JSON Schema 常用特性"""
+	"""工具参数 Schema 定义，支持 JSON Schema 常用特性。"""
 	
 	model_config = ConfigDict(populate_by_name=True)
 	
@@ -59,7 +59,7 @@ class Argument(BaseModel):
 	@model_serializer(mode="wrap")
 	def serialize(self, handler) -> Dict[str, Any]:
 		
-		"""序列化时 移除 None 值并转换蛇形字段名为驼峰"""
+		"""序列化时移除 None 值，并将蛇形字段名转换为驼峰形式。"""
 		
 		data = handler(self)
 		

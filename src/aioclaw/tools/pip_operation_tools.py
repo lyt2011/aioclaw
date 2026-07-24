@@ -9,7 +9,7 @@ import sys
 import shutil
 
 
-# pip install
+# 安装 pip 包
 PipInstallSchema = build_tool_schema(
 	tool_name			= "pip_install",
 	tool_description	= "使用当前Python解释器安装pip包，确保包安装到正确的环境中而非系统Python",
@@ -19,7 +19,7 @@ PipInstallSchema = build_tool_schema(
 	}
 )
 
-# pip uninstall
+# 卸载 pip 包
 PipUninstallSchema = build_tool_schema(
 	tool_name			= "pip_uninstall",
 	tool_description	= "使用当前Python解释器卸载pip包",
@@ -29,7 +29,7 @@ PipUninstallSchema = build_tool_schema(
 	}
 )
 
-# pip list
+# 列出已安装的 pip 包
 PipListSchema = build_tool_schema(
 	tool_name			= "pip_list",
 	tool_description	= "列出当前Python环境中已安装的pip包",
@@ -38,7 +38,7 @@ PipListSchema = build_tool_schema(
 	}
 )
 
-# pip show
+# 查看 pip 包信息
 PipShowSchema = build_tool_schema(
 	tool_name			= "pip_show",
 	tool_description	= "查看指定pip包的详细信息（版本、依赖、位置等）",
@@ -49,7 +49,7 @@ PipShowSchema = build_tool_schema(
 )
 
 
-# Pip操作类
+# Pip 操作类
 class PipOperationTools(BaseTool):
 
 	def __init__(self, *args, **kwargs):

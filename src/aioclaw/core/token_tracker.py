@@ -23,7 +23,7 @@ class TokenTracker:
 	@property
 	def ratio(self) -> float:
 
-		"""返回 historical actual/guessed 的平均比值，无数据时返回 1.0（中性）"""
+		"""返回历史实际值/估算值的平均比值；没有数据时返回 1.0（中性值）"""
 
 		if not self._ratios:
 			return 1.0
@@ -35,7 +35,7 @@ class TokenTracker:
 	
 	def calibrate_ratio(self, guessed: int, actual: int):
 
-		"""记录 actual/guessed 比值，用于比例校准"""
+		"""记录实际值/估算值的比值，用于比例校准"""
 
 		if guessed > 0 and actual > 0:
 			self._ratios.append(actual / guessed)
@@ -43,7 +43,7 @@ class TokenTracker:
 
 	def _get_tokens_by_tiktoken(self, contents: List[str]) -> int:
 
-		"""通过 tiktoken 估算 tokens"""
+		"""通过 tiktoken 估算 token 数量"""
 
 		tokens = (len(self._enc.encode(c, disallowed_special=())) for c in contents)
 		return sum(tokens)

@@ -22,7 +22,7 @@ class ToolCallingContextsBlock(BaseContextsBlock):
 	tool_calling	: ToolCallingContext
 	tool_outputs	: List[ToolOutputContext] = Field(default_factory=list)
 	
-	# 懒加载 防止一直计算id
+	# 懒加载，避免重复计算 ID
 	_id_cache	: List[str]	= PrivateAttr(default=None)
 	_is_dirty	: bool		= PrivateAttr(default=True)
 	
@@ -41,7 +41,7 @@ class ToolCallingContextsBlock(BaseContextsBlock):
 	@property
 	def id_cache(self) -> List[str]:
 		
-		"""懒加载tool_calling_ids实现"""
+		"""懒加载 tool_calling_ids 的实现"""
 		
 		if self._is_dirty is True:
 			self._id_cache = [tool_call.id for tool_call in self.tool_calling.tool_calls]
@@ -50,7 +50,7 @@ class ToolCallingContextsBlock(BaseContextsBlock):
 	
 	def is_complete(self) -> bool:
 		
-		"""验证tool_calling结果是否完整"""
+		"""验证 tool_calling 结果是否完整"""
 		
 		tool_output_ids = [
 			tool_output.tool_call_id

@@ -15,7 +15,8 @@ dependencies = [
 	"fake-useragent",
 	"asyncstdlib==3.14.0",
 	"python-frontmatter",
-	"aioverse>=0.4.4"
+	"aioverse>=0.4.4",
+	"tiktoken>=0.7.0"
 ]
 
 [build-system]

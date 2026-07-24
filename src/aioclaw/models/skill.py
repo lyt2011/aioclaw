@@ -4,7 +4,7 @@ import frontmatter
 
 from typing		import Optional, Literal, Self
 
-# markdown解析实现
+# Markdown 解析实现
 
 
 class Skill(BaseModel):

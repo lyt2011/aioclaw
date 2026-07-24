@@ -1,4 +1,4 @@
 class BaseClawError(Exception):
 	
-	"""aioclaw 错误基类"""
+	"""aioclaw 错误基类。"""
 	...

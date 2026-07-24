@@ -18,34 +18,34 @@ class KeysManager:
 	
 	def cache_key(self, key: AssistantKey):
 		
-		"""设置缓存的key"""
+		"""设置缓存的 Key"""
 		
 		self._cached_key = key
 	
 	def uncache_key(self):
 		
-		"""取消缓存key"""
+		"""取消缓存的 Key"""
 		
 		self._cached_key = None
 	
 	def _is_available_key(self, key: AssistantKey) -> bool:
 		
-		"""辅助方法 判断一个key是否已启用且可用"""
+		"""辅助方法 判断一个 Key 是否已启用且可用"""
 		
 		return key.is_enable and key.is_available
 	
 	def get_available_key(self) -> Union[AssistantKey, None]:
 	
-		"""获取可用key"""
+		"""获取可用 Key"""
 		
-		# 尝试通过已缓存的key直接返回 O(1)实现
+		# 尝试通过已缓存的 Key 直接返回，实现 O(1) 查找
 		if self._cached_key and self._is_available_key(self._cached_key): return self._cached_key
 		
 		for key in self.keys:
 			
 			if not self._is_available_key(key): continue
 				
-			# 找到则缓存该key并返回
+			# 找到后缓存该 Key 并返回
 			self.cache_key(key)
 			return key
 		

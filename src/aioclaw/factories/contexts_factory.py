@@ -13,13 +13,13 @@ from aioverse.models	import (
 
 class ContextsFactory(PydanticModelsFactory):
 
-	"""逻辑无需更改"""
+	"""此处逻辑无需更改。"""
 	...
 
 
 # 全局单例 自动注册
-# Warning: 注意顺序
-# ToolCallingContext的role也是assistant 所以要放AssistantContext之前
+# 注意注册顺序
+# ToolCallingContext 的角色也是 assistant，所以要放在 AssistantContext 之前
 contexts_factory = ContextsFactory()
 contexts_factory.register(ToolCallingContext, 1)
 contexts_factory.register(ToolOutputContext, 2)

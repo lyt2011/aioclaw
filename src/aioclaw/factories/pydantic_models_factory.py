@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class PydanticModelsFactory(FactoryProtocol):
 
-	"""pydantic 模型工厂"""
+	"""Pydantic 模型工厂。"""
 
 	def __init__(self):
 		self.registered_models = []
@@ -20,7 +20,7 @@ class PydanticModelsFactory(FactoryProtocol):
 	@staticmethod
 	def _static_validate(model_class: Type, data: Dict[str, Any]) -> bool:
 
-		"""对模型字段进行静态检查 减轻try-except开销"""
+		"""对模型字段进行静态检查，减少 try-except 开销。"""
 
 		model_field = model_class.model_fields
 

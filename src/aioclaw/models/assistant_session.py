@@ -23,7 +23,7 @@ class AssistantSession(BaseModel):
 	assistant_think_effort	: ThinkingEfforts	= Field(default=ThinkingEfforts.MAX, description="思考强度")
 
 
-	# ----- setters -----
+	# ----- 设置方法 -----
 	def set_model_name(self, name: str):
 		self.assistant_model_name = name
 	def set_think_mode(self, mode: ThinkingModes):
