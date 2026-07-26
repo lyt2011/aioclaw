@@ -15,7 +15,7 @@ from aioverse.models import (
 	ToolOutputContext,
 )
 
-from aioclaw.core import AssistantGateway, Compresser
+from aioclaw.core import AssistantGateway, Compresser, TokenTracker
 from aioclaw.errors import (
 	ContextOverflowError,
 	UnknownFinishReasonError,
@@ -156,6 +156,7 @@ class ContextCompressionTests(unittest.TestCase):
 		context_safety_margin=0,
 		context_compression_max_tokens=2048,
 		support_tool=False,
+		token_tracker=None,
 	):
 		model_config = AssistantModelConfig(
 			api_url="https://example.invalid/v1/chat/completions",
@@ -181,7 +182,7 @@ class ContextCompressionTests(unittest.TestCase):
 			claw_config=claw_config,
 			assistant_session=session,
 			openai_client=client,
-			token_tracker=CharacterTokenTracker(),
+			token_tracker=CharacterTokenTracker() if token_tracker is None else token_tracker,
 			tools_manager=(
 				self._tools_manager()
 				if support_tool
@@ -540,6 +541,74 @@ class ContextCompressionTests(unittest.TestCase):
 		self.assertTrue(asyncio.run(gateway.on_local_context_compress()))
 		self.assertEqual(len(gateway.assistant_session.contexts_status.contexts), 1)
 		self.assertLess(gateway.estimated_context_tokens, old_tokens)
+
+	def test_compression_resets_token_calibration(self):
+		tracker = TokenTracker(calibration_percent=1.0)
+		gateway = self._gateway(
+			[
+				UserContext(content="a" * 1000),
+				UserContext(content="b" * 1000),
+			],
+			compresser=DropFirstCompresser(),
+			token_tracker=tracker,
+		)
+		tools_json = gateway._get_context_token_tools_json()
+		scope = gateway._get_token_calibration_scope(tools_json)
+		old_raw_tokens = gateway.get_request_raw_estimated_tokens()
+
+		tracker.calibrate_estimate(
+			guessed=old_raw_tokens,
+			actual=old_raw_tokens * 3,
+			calibration_scope=scope,
+		)
+		self.assertGreater(
+			gateway.estimated_context_tokens,
+			old_raw_tokens,
+		)
+
+		self.assertTrue(asyncio.run(gateway.on_local_context_compress()))
+
+		new_raw_tokens = gateway.get_request_raw_estimated_tokens()
+		self.assertEqual(gateway.estimated_context_tokens, new_raw_tokens)
+		self.assertEqual(
+			tracker.get_calibration_summary(calibration_scope=scope),
+			(1.0, 0, 0),
+		)
+
+	def test_api_compression_resets_token_calibration(self):
+		tracker = TokenTracker(calibration_percent=1.0)
+		client = FakeResponseClient(content="## 状态\n- 压缩完成")
+		gateway = self._gateway(
+			[
+				UserContext(content=letter * 1000)
+				for letter in ("a", "b", "c", "d", "e")
+			],
+			client=client,
+			context_compression_keep_contexts=2,
+			token_tracker=tracker,
+		)
+		tools_json = gateway._get_context_token_tools_json()
+		scope = gateway._get_token_calibration_scope(tools_json)
+		old_raw_tokens = gateway.get_request_raw_estimated_tokens()
+
+		tracker.calibrate_estimate(
+			guessed=old_raw_tokens,
+			actual=old_raw_tokens * 3,
+			calibration_scope=scope,
+		)
+		self.assertGreater(
+			gateway.estimated_context_tokens,
+			old_raw_tokens,
+		)
+
+		self.assertTrue(asyncio.run(gateway.compress_contexts()))
+
+		new_raw_tokens = gateway.get_request_raw_estimated_tokens()
+		self.assertEqual(gateway.estimated_context_tokens, new_raw_tokens)
+		self.assertEqual(
+			tracker.get_calibration_summary(calibration_scope=scope),
+			(1.0, 0, 0),
+		)
 
 	def test_local_compresser_sets_and_resets_flag(self):
 		compresser = ObservingCompresser()

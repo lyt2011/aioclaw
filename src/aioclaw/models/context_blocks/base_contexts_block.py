@@ -1,6 +1,7 @@
-from pydantic	import Field, SerializeAsAny, ConfigDict, model_validator
+from pydantic	import Field, SerializeAsAny, ConfigDict, field_validator, model_validator
 
 from ...protocols	import ContextsBlockProtocol
+from ...factories.contexts_factory	import restore_context_data
 from aioverse.models	import BaseContext
 
 from typing		import List, Iterator, Any
@@ -11,6 +12,20 @@ class BaseContextsBlock(ContextsBlockProtocol):
 	model_config = ConfigDict(extra='forbid')
 	
 	contexts: List[SerializeAsAny[BaseContext]] = Field(default_factory=list)
+
+	@field_validator("contexts", mode="before")
+	@classmethod
+	def _restore_contexts(cls, contexts: Any) -> Any:
+
+		"""恢复持久化上下文的具体模型类型。"""
+
+		if not isinstance(contexts, list):
+			return contexts
+
+		return [
+			restore_context_data(context)
+			for context in contexts
+		]
 	
 	@model_validator(mode='before')
 	@classmethod

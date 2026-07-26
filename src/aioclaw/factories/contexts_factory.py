@@ -10,6 +10,8 @@ from aioverse.models	import (
 	AssistantContext
 )
 
+from typing	import Any
+
 
 class ContextsFactory(PydanticModelsFactory):
 
@@ -27,3 +29,17 @@ contexts_factory.register(SystemContext, 3)
 contexts_factory.register(AssistantContext, 4)
 contexts_factory.register(UserContext, 5)
 contexts_factory.register(BaseContext, 6)
+
+
+def restore_context_data(data: Any) -> Any:
+
+	"""将持久化的普通上下文数据恢复为具体 aioverse 模型。"""
+
+	if not isinstance(data, dict):
+		return data
+
+	if any(key in data for key in ("tool_calling", "tool_outputs", "contexts")):
+		return data
+
+	context = contexts_factory.dispatcher(data)
+	return data if context is None else context

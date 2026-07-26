@@ -2,43 +2,38 @@ from __future__ import annotations
 
 from aioverse.errors import ResponseCodeError
 from aioverse.OpenAI import OpenAIClient
-from aioverse.models import (
-	BaseContext,
-	SystemContext,
-	ToolCallingContext,
-	AssistantContext,
-	Request,
-	Response,
-	StreamChunk,
-)
+from aioverse.models import BaseContext, SystemContext, ToolCallingContext
 
-from .token_tracker import TokenTracker, token_tracker
-from .compresser import Compresser
-from .stream_handler import StreamHandler
+from .compresser		import Compresser
+from .stream_handler	import StreamHandler
+from .token_tracker		import TokenTracker, token_tracker
+from ..errors			import (
+	GatewayBusyError,
+	IncompleteToolCallBlockError,
+	ModelConfigMissingError,
+	RuntimeInputAdditionError,
+)
+from ..managers	import KeysManager, ToolsManager
+from ..mixins	import (
+	ContextCompressionMixin,
+	MultimodalContextMixin,
+	RequestHandlingMixin,
+	ValueNotifier,
+)
 from ..models import (
-	ClawConfig,
+	AssistantModelConfig,
 	AssistantPrompt,
 	AssistantSession,
-	AssistantModelConfig,
-	BaseContextsBlock,
 	AssistantOutput,
-	ToolCallingContextsBlock,
+	BaseContextsBlock,
+	ClawConfig,
 	ContextCompressionPrompt,
+	ToolCallingContextsBlock,
 )
-from ..managers import ToolsManager, KeysManager
-from ..errors import (
-	UnknownFinishReasonError,
-	RuntimeInputAdditionError,
-	ModelConfigMissingError,
-	IncompleteToolCallBlockError,
-	GatewayBusyError,
-)
-from ..factories import contexts_factory
-from ..enums import FinishReasons
-from ..utils import generate_assistant_output_by_response
-from ..mixins import ContextCompressionMixin, ValueNotifier
 
-from typing import Optional, Union, Iterator
+from ..services import ContextRequestProjector
+
+from typing import Iterator, Optional, Union
 
 import asyncio
 import logging
@@ -49,7 +44,12 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 
-class AssistantGateway(ContextCompressionMixin, ValueNotifier):
+class AssistantGateway(
+	ContextCompressionMixin,
+	MultimodalContextMixin,
+	RequestHandlingMixin,
+	ValueNotifier,
+):
 
 	"""OpenAI 兼容的 Agent 网关，内置上下文压缩能力。"""
 
@@ -64,14 +64,16 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 		compresser					: Optional[Compresser] = None,
 		stream_handler				: Optional[StreamHandler] = None,
 		context_compression_prompt	: Optional[ContextCompressionPrompt] = None,
+		context_request_projector	: Optional[ContextRequestProjector] = None,
 	):
 		
-		self.claw_config = claw_config
-		self.assistant_session = assistant_session
+		self.claw_config		= claw_config
+		self.assistant_session	= assistant_session
 
 		super().__init__(
 			compresser=compresser,
 			context_compression_prompt=context_compression_prompt,
+			context_request_projector=context_request_projector,
 		)
 
 		self._openai_client		= openai_client
@@ -83,16 +85,18 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 		self._keys_manager			: Optional[KeysManager] = None
 		self._assistant_model_config: Optional[AssistantModelConfig] = None
 
-		self._client_session				: Optional[aiohttp.ClientSession] = None
-		self._request_estimated_tokens		: Optional[int] = None
-		self._request_prompt_tokens			: Optional[int] = None
-		self._generator_start_timestamp		: Optional[float] = None
-		self._generator_complete_timestamp	: Optional[float] = None
+		self._client_session					: Optional[aiohttp.ClientSession] = None
+		self._request_estimated_tokens			: Optional[int] = None
+		self._request_raw_estimated_tokens		: Optional[int] = None
+		self._request_prompt_tokens				: Optional[int] = None
+		self._request_token_calibration_scope	: Optional[str] = None
+		self._generator_start_timestamp			: Optional[float] = None
+		self._generator_complete_timestamp		: Optional[float] = None
 		self._retry_count = 0
 
-		self._is_round_processing = False
-		self._is_generator_processing = False
-		self._is_stopping_generator = False
+		self._is_round_processing		: bool	= False
+		self._is_generator_processing	: bool	= False
+		self._is_stopping_generator		: bool	= False
 
 	def set_assistant_model_config(self, assistant_model_config: AssistantModelConfig):
 		
@@ -147,7 +151,9 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 
 
 	def change_model(self, model_name: str) -> bool:
+		
 		"""切换到指定模型并重建对应的 Key 管理器。"""
+		
 		for assistant_model_config in self.claw_config.models_config:
 
 			if assistant_model_config.model_name == model_name:
@@ -222,10 +228,10 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 			if not self.claw_config.models_config:
 				raise ModelConfigMissingError("无任何可用模型的信息")
 
-			default_model_config = self.claw_config.models_config[0]
+			model_name = self.assistant_session.assistant_model_name
 
-			if not self.change_model(default_model_config.model_name):
-				raise ModelConfigMissingError(f"找不到默认模型: {default_model_config.model_name}")
+			if not self.change_model(model_name):
+				raise ModelConfigMissingError(f"找不到会话指定的模型: {model_name}")
 
 		return self._assistant_model_config
 
@@ -313,153 +319,6 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 	async def on_context(self, context: BaseContext) -> None:
 		await self.on_adding_context(context)
 
-	async def on_build_request(self) -> Request:
-
-		request_model	= Request(url=self.assistant_model_config.api_url)
-		assistant_key	= self.keys_manager.get_available_key()
-
-		request_model.set_header("Authorization", assistant_key.key)
-		request_model.set_header("Content-Type", "application/json")
-		request_model.set_body("model", self.assistant_model_config.model_name)
-		request_model.set_body("messages", self.assistant_session.contexts_status.to_list())
-		request_model.set_body("stream", self.assistant_model_config.support_streaming)
-
-		if self.assistant_model_config.support_tool:
-			request_model.set_body("tools", self.tools_manager.to_list())
-
-		if self.assistant_model_config.support_thinking:
-			request_model.set_body("thinking", {"type": self.assistant_session.assistant_think_mode})
-			request_model.set_body("reasoning_effort", self.assistant_session.assistant_think_effort)
-
-		return request_model
-
-	async def on_request(self, request: Request) -> Response:
-		return await self.openai_client.call(request=request)
-
-	async def on_response(self, response: Response) -> None:
-
-		if not response.choices:
-			raise UnknownFinishReasonError("模型响应没有 choices")
-
-		choice			= response.choices[0]
-		message			= choice.message
-		context			= contexts_factory.dispatcher(message.model_dump())
-		finish_reason	= choice.finish_reason
-
-		if response.usage is not None:
-			self.assistant_session.contexts_status.set_token(response.usage.total_tokens)
-			self._request_prompt_tokens = response.usage.prompt_tokens
-
-		if finish_reason == FinishReasons.TOOL_CALLING:
-
-			if not isinstance(context, ToolCallingContext):
-				raise IncompleteToolCallBlockError("tool_calls finish_reason 的消息格式无效")
-
-			await self.on_tool_calling(context)
-			return None
-
-		if finish_reason in (FinishReasons.STOP, FinishReasons.LENGTH):
-			if getattr(message, "tool_calls", None):
-				raise IncompleteToolCallBlockError(f"finish_reason={finish_reason} 时 tool_calls 不完整")
-
-			await self.on_context(context)
-
-			if finish_reason == FinishReasons.LENGTH:
-				logger.warning("模型输出因达到长度上限而截断")
-
-			if self.is_generator_processing:
-				self.set_stop_generator(True)
-
-			return None
-
-		raise UnknownFinishReasonError(f"未处理的finish_reason: {finish_reason}")
-
-	async def on_stream_chunk(self, chunk: StreamChunk) -> Optional[AssistantOutput]:
-
-		if not chunk.choices:
-			return None
-
-		choice = chunk.choices[0]
-		self.stream_handler.merge(choice.delta)
-
-		if choice.finish_reason is None:
-			return None
-
-		finish_reason	= choice.finish_reason
-		handler			= self.stream_handler
-
-		if finish_reason == FinishReasons.TOOL_CALLING:
-			if not handler._tool_calls:
-				raise IncompleteToolCallBlockError("tool_calls finish_reason 没有携带调用内容")
-
-			await self.on_tool_calling(handler.build_tool_calling_context())
-			handler.reset()
-
-			return None
-
-		if finish_reason in (FinishReasons.STOP, FinishReasons.LENGTH):
-			if handler._tool_calls:
-				raise IncompleteToolCallBlockError(f"finish_reason={finish_reason} 时 tool_calls 不完整")
-
-			assistant_ctx = AssistantContext(content=handler._content, reasoning_content=handler._reasoning)
-			await self.on_context(assistant_ctx)
-
-			if finish_reason == FinishReasons.LENGTH:
-				logger.warning("流式模型输出因达到长度上限而截断")
-
-			if self.is_generator_processing:
-				self.set_stop_generator(True)
-
-			return handler.flush(finish_reason=finish_reason)
-
-		raise UnknownFinishReasonError(f"未处理的finish_reason: {finish_reason}")
-
-	async def on_build_output(self, response: Response) -> Optional[AssistantOutput]:
-		return generate_assistant_output_by_response(response)
-
-	async def on_stream_request(self) -> Union[AssistantOutput, None]:
-		request = await self.on_build_request()
-		contexts_status = self.assistant_session.contexts_status
-
-		async for chunk in self.openai_client.call_stream(request=request):
-
-			if self.is_stopping_generator:
-				logger.info("流式请求被 stop 信号中断")
-				return None
-
-			if chunk.usage is not None:
-				contexts_status.set_token(chunk.usage.total_tokens)
-				self._request_prompt_tokens = chunk.usage.prompt_tokens
-
-			if output := await self.on_stream_chunk(chunk):
-				return output
-
-		if self.stream_handler.is_empty:
-			return None
-
-		if self.stream_handler._tool_calls:
-			raise IncompleteToolCallBlockError("流式连接在 tool call 完成前关闭")
-
-		assistant_ctx = AssistantContext(
-			content				= self.stream_handler._content,
-			reasoning_content	= self.stream_handler._reasoning,
-		)
-
-		await self.on_context(assistant_ctx)
-
-		if self.is_generator_processing:
-			self.set_stop_generator(True)
-
-		return self.stream_handler.flush()
-
-	async def on_common_request(self) -> Union[AssistantOutput, None]:
-
-		request		= await self.on_build_request()
-		response	= await self.on_request(request)
-
-		await self.on_response(response)
-		return await self.on_build_output(response)
-
 	async def on_round_initiate(self) -> None:
 
 		if self.is_round_processing:
@@ -469,8 +328,10 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 
 		try:
 
-			self._request_estimated_tokens	= None
-			self._request_prompt_tokens		= None
+			self._request_estimated_tokens			= None
+			self._request_raw_estimated_tokens		= None
+			self._request_prompt_tokens				= None
+			self._request_token_calibration_scope	= None
 			
 			self.stream_handler.reset()
 
@@ -486,7 +347,9 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 
 			await self.on_prepare_context_before_request()
 
-			self._request_estimated_tokens = self.get_request_estimated_tokens()
+			self._request_estimated_tokens			= self.get_request_estimated_tokens()
+			self._request_raw_estimated_tokens		= self.get_request_raw_estimated_tokens()
+			self._request_token_calibration_scope	= self._get_token_calibration_scope(self._get_context_token_tools_json())
 
 		except Exception:
 			self.set_processing(False)
@@ -499,17 +362,38 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 
 		contexts_status	= self.assistant_session.contexts_status
 		guessed			= self._request_estimated_tokens
+		raw_guessed		= self._request_raw_estimated_tokens
 		actual			= self._request_prompt_tokens
 
 		if guessed is not None and actual is not None:
+			calibrate_estimate = getattr(self.token_tracker, "calibrate_estimate", None)
+
+			if callable(calibrate_estimate) and raw_guessed is not None:
+				calibrate_estimate(
+					guessed=raw_guessed,
+					actual=actual,
+					calibration_scope=self._request_token_calibration_scope,
+				)
 			
-			self.token_tracker.calibrate_ratio(guessed=guessed, actual=actual)
+			else:
+				self.token_tracker.calibrate_ratio(guessed=guessed, actual=actual)
+
 			contexts_status.clear_tokens_cache()
 			
 			logger.info("估算 prompt tokens: %s", guessed)
+			logger.info("原始估算 prompt tokens: %s", raw_guessed)
 			logger.info("实际 prompt tokens: %s", actual)
-			logger.info("当前平均差值: %s", self.token_tracker.ratio)
-		
+
+			get_summary = getattr(self.token_tracker, "get_calibration_summary", None)
+			
+			if callable(get_summary):
+				
+				ratio, offset, samples = get_summary(calibration_scope=self._request_token_calibration_scope)
+				logger.info("当前 token 校准: slope=%s, offset=%s, samples=%s", ratio, offset, samples)
+			
+			else:
+				logger.info("当前 token 校准比例: %s", self.token_tracker.ratio)
+
 		else:
 			logger.info("本轮没有可用于校准的 prompt token usage")
 
@@ -517,7 +401,7 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 
 	async def on_round_error(self, exception: Exception) -> None:
 		
-		"""处理可重试的网络或 API 错误，且不重置重试状态。"""
+		"""处理可重试的网络或 API 错误，且不重置重试状态"""
 		
 		if isinstance(exception, ResponseCodeError):
 			code = exception.code
@@ -525,7 +409,7 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 			if code == 429:
 				delay = min(2 ** self._retry_count, 60)
 				self._retry_count += 1
-				logger.warning("限流 (429), %ss 后重试 (第%s次)", delay, self._retry_count)
+				logger.warning(f"限流 (429), {delay} 后重试 (第{self._retry_count}次)")
 				await asyncio.sleep(delay)
 				return
 
@@ -545,14 +429,14 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 			if 500 <= code < 600:
 				delay = min(2 ** self._retry_count, 30)
 				self._retry_count += 1
-				logger.warning("服务器错误 (%s), %ss 后重试",code, delay)
+				logger.warning("服务器错误 ({code}), {delay} 后重试")
 				await asyncio.sleep(delay)
 				return
 
 		if isinstance(exception, (asyncio.TimeoutError, aiohttp.ClientError)):
 			delay = min(2 ** self._retry_count, 30)
 			self._retry_count += 1
-			logger.warning("网络错误: %s, %ss 后重试", exception, delay)
+			logger.warning(f"网络错误: {exception}, {delay} 后重试")
 			await asyncio.sleep(delay)
 			return
 
@@ -584,6 +468,7 @@ class AssistantGateway(ContextCompressionMixin, ValueNotifier):
 			await self._client_session.close()
 
 	async def round_call(self) -> Union[AssistantOutput, None]:
+		
 		round_started = False
 
 		try:

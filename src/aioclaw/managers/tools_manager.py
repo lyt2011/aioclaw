@@ -1,82 +1,82 @@
 from __future__ import annotations
 
-import orjson
+from ..protocols import ToolsManagerProtocol
+from ..services import (
+	ToolExecutor,
+	ToolOutputContent,
+	ToolRegistry,
+	func2coro,
+	normalize_tool_output,
+	safe_execute_tool,
+)
 
-from ..protocols	import ToolsManagerProtocol
-from aioverse.models	import ToolOutputContext
+from aioverse.models import ToolOutputContext
 
-from typing import List, Dict, Tuple, Awaitable, Any, Callable, TYPE_CHECKING
-import asyncio
+from typing import List, Dict, Any, Callable, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-	
-	from ..models			import Tool
-	from aioverse.models	import ToolCallingContext
 
-
-# 辅助方法 安全的工具执行
-async def safe_execute_tool(coro, timeout: int = 30) -> str:
-	
-	try:
-		
-		tool_output = await asyncio.wait_for(coro, timeout=timeout)
-		
-		return str(tool_output) # 保证返回str 防止api报错
-	
-	except Exception as e:
-		
-		return f"{type(e).__name__}: {e}"
-	
-# 辅助方法 函数转协程
-def func2coro(func: callable, *args, **kwargs) -> Awaitable:
-
-	return (
-		func(*args, **kwargs)
-		if asyncio.iscoroutinefunction(func)
-		else asyncio.to_thread(func, *args, **kwargs)
-	)
+	from ..models import Tool
+	from aioverse.models import ToolCallingContext
 
 
 class ToolsManager(ToolsManagerProtocol):
-	
-	def __init__(self, timeout: int = 30):
-		
-		self.schema: Dict[str, Tuple[Callable, Tool]] = {}
-		
-		self.timeout = timeout
-	
-	def register(self, func: callable, schema: Tool):
-				
-		if func.__name__ not in self.schema:
-			self.schema[func.__name__] = (func, schema)
-		
+
+	"""兼容旧 API 的工具门面，注册与执行由独立服务负责。"""
+
+	def __init__(
+		self,
+		timeout: int = 30,
+		*,
+		registry: ToolRegistry | None = None,
+		executor: ToolExecutor | None = None,
+	):
+
+		self._registry = ToolRegistry() if registry is None else registry
+		self._executor = ToolExecutor(timeout=timeout) if executor is None else executor
+
+	@property
+	def schema(self) -> Dict[str, tuple]:
+		"""保留旧的 schema 访问入口。"""
+		return self._registry.schema
+
+	@schema.setter
+	def schema(self, value: Dict[str, tuple]) -> None:
+		self._registry.schema = value
+
+	@property
+	def timeout(self) -> int:
+		return self._executor.timeout
+
+	@timeout.setter
+	def timeout(self, value: int) -> None:
+		self._executor.set_timeout(value)
+
+	def register(self, func: Callable[..., Any], schema: "Tool"):
+		self._registry.register(func, schema)
+
 	def set_timeout(self, timeout: int):
-		self.timeout = timeout
-	
-	async def execute_tool(self, tool_calling: ToolCallingContext) -> ToolOutputContext:
-		
-		"""
-		使工具调用不会崩溃 优化可读性
-		"""
-		
-		tool_name	= tool_calling.function.name
-		tool_id		= tool_calling.id
-		
-		if tool_name in self.schema:
-			func, _			= self.schema[tool_name]
-			tool_arguments	= orjson.loads(tool_calling.function.arguments)
-			tool_coro		= func2coro(func, **tool_arguments)
-			tool_output		= await safe_execute_tool(tool_coro, timeout=self.timeout)
-		
-		else:
-			tool_output	= f"无法调用不存在的工具: {tool_name}"
-		
-		return ToolOutputContext(tool_call_id=tool_id, content=tool_output)
-	
+		self._executor.set_timeout(timeout)
+
+	async def execute_tool(self, tool_calling: "ToolCallingContext") -> ToolOutputContext:
+		return await self._executor.execute(
+			tool_calling,
+			self._registry.get,
+		)
+
 	def to_list(self) -> List[Dict[str, Any]]:
-		
-		return [schema.model_dump() for _, schema in self.schema.values()]
+		return self._registry.to_list()
 
 
 tools_manager = ToolsManager()
+
+
+__all__ = [
+	"ToolOutputContent",
+	"ToolsManager",
+	"func2coro",
+	"normalize_tool_output",
+	"safe_execute_tool",
+	"tools_manager",
+]

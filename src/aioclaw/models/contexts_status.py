@@ -1,6 +1,7 @@
-from pydantic	import BaseModel, PrivateAttr, Field, SerializeAsAny
+from pydantic	import BaseModel, PrivateAttr, Field, SerializeAsAny, field_validator
 
 from .context_blocks	import BaseContextsBlock, ToolCallingContextsBlock
+from ..factories.contexts_factory	import restore_context_data
 from aioverse.models	import BaseContext, SystemContext
 
 from typing		import List, Optional, Union, Dict, Any
@@ -25,6 +26,20 @@ class ContextsStatus(BaseModel):
 	_contexts_cache		: List[SerializeAsAny[BaseContext]]	= PrivateAttr(default_factory=list)
 	_tokens_cache		: Dict[str, int]	= PrivateAttr(default_factory=dict)
 	
+	@field_validator("contexts", mode="before")
+	@classmethod
+	def _restore_contexts(cls, contexts: Any) -> Any:
+
+		"""恢复持久化上下文的具体模型类型。"""
+
+		if not isinstance(contexts, list):
+			return contexts
+
+		return [
+			restore_context_data(context)
+			for context in contexts
+		]
+
 	
 	def is_dirty(self) -> bool:
 		return self._is_dirty

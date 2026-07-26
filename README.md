@@ -1,7 +1,7 @@
 # aioclaw 🐾
 
 [![Python Version](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.2.2-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.3-green)](CHANGELOG.md)
 
 > 基于 **aioverse** 构建的异步 AI Agent 框架。它把 OpenAI 兼容请求、工具调用、多轮上下文、SSE 增量合并和会话持久化收进一条可扩展的调用链里喵。
 
@@ -9,7 +9,7 @@
 
 ## 简介 ✨
 
-`aioclaw` 用于构建需要调用工具的 AI Agent。默认的 `AssistantGateway` 直接组合普通网关逻辑、`ContextCompressionMixin` 与 `ValueNotifier`，负责一轮轮请求模型、接收回复、执行 tool calls、写回上下文，并通过事件钩子把每个关键节点暴露给调用方。
+`aioclaw` 用于构建需要调用工具的 AI Agent。默认的 `AssistantGateway` 组合 `ContextCompressionMixin`、`MultimodalContextMixin`、`RequestHandlingMixin` 与 `ValueNotifier`：它负责会话状态、工具循环和生成器生命周期，并通过事件钩子暴露关键节点。
 
 它适合这些场景：
 
@@ -28,12 +28,13 @@
 - 🔁 **工具调用循环**：模型请求工具后自动执行，结果以 `ToolCallingContextsBlock` 写回上下文，再继续下一轮
 - 🪝 **事件驱动网关**：请求构建、响应处理、上下文写入、工具执行、异常处理等环节均可覆写
 - 🧠 **Thinking 能力开关**：支持 `disabled` / `enabled` / `adaptive` 及多个 reasoning effort
+- 🖼️ **请求期多模态适配**：按模型能力过滤图片、音频和视频附件，不改写会话原始上下文
 - 💾 **会话持久化**：`AssistantSession` 可直接序列化到 JSON 并恢复
 - 🧱 **上下文块**：把工具请求和工具结果作为完整调用链保存，避免 tool message 脱离对应请求
 - 🗜️ **API 上下文压缩**：Gateway 在请求前按软/硬阈值生成 Markdown Memory，并支持失败回滚
 - 🧩 **可选本地压缩器**：`Compresser` 只处理传入的上下文列表，不持有 Gateway 或 API Client
 - 🔧 **内置工具集**：代码、文件、网络、Pip、技能查询等工具可按需组合
-- 📊 **Token 估算**：基于 `tiktoken` 的滑动比例校准器，并通过 dirty 状态缓存估算结果
+- 📊 **Token 估算**：基于 `tiktoken` 的作用域线性校准器，并通过 dirty 状态缓存估算结果
 - 🔑 **Key 管理**：支持多 Key 的可用性缓存与切换
 - 🏭 **Pydantic 工厂**：根据原始数据自动恢复不同的上下文模型
 
@@ -84,7 +85,7 @@ python3 -m compileall -q src tests
 git diff --check
 ```
 
-测试覆盖上下文压缩、Gateway 生命周期和 `StreamHandler` 的 SSE tool call 合并行为。
+测试覆盖上下文压缩、Gateway 生命周期、请求期多模态适配、视觉工具及 `StreamHandler` 的 SSE tool call 合并行为。
 
 ---
 
@@ -108,7 +109,9 @@ git diff --check
             "max_context_length": 128000,
             "support_tool": true,
             "support_thinking": true,
-            "support_streaming": true
+            "support_streaming": true,
+            "support_image": true,
+            "tool_output_image_mode": "follow_up_user"
         }
     ],
     "context_compression_keep_contexts": 4,
@@ -147,6 +150,7 @@ from aioclaw.tools import (
 	CodeOperationTools,
 	FileOperationTools,
 	NetworkOperationTools,
+	VisionOperationTools,
 )
 from aioclaw.utils import chain_tools_by_instance
 
@@ -162,6 +166,7 @@ async def main():
 		CodeOperationTools(),
 		FileOperationTools(),
 		NetworkOperationTools(),
+		VisionOperationTools(),
 	)
 	tools.register(tools_manager)
 
@@ -227,9 +232,15 @@ AssistantGateway.async_generator()
 ### `AssistantGateway`
 
 `AssistantGateway` 是默认网关：它提供普通 Agent 请求、工具循环和生成器生命周期，`ContextCompressionMixin` 提供可配置的 API 上下文压缩。压缩逻辑通过请求前钩子接入，不需要额外的 Base Gateway 中转层。
+`MultimodalContextMixin` 在请求构建期适配附件，`RequestHandlingMixin` 负责普通与流式请求/响应处理。
 
 ```python
-class AssistantGateway(ContextCompressionMixin, ValueNotifier):
+class AssistantGateway(
+	ContextCompressionMixin,
+	MultimodalContextMixin,
+	RequestHandlingMixin,
+	ValueNotifier,
+):
 
 	def change_model(self, model_name: str) -> bool: ...
 	async def input(self, context: BaseContext) -> None: ...
@@ -291,7 +302,14 @@ elapsed = gateway.generator_elapsed_seconds
 | `support_tool` | 否 | 是否在请求体中附带工具 Schema |
 | `support_thinking` | 否 | 是否发送 `thinking` 与 `reasoning_effort` 字段 |
 | `support_streaming` | 否 | 是否走 SSE 请求路径，默认 `True` |
-| `support_image` / `support_video` / `support_audio` | 否 | 模型能力标记，当前仅保存为配置 |
+| `support_image` / `support_video` / `support_audio` | 否 | 请求期能力开关；不支持的附件不会进入模型请求，并在请求中追加说明；不影响工具注册 |
+| `tool_output_image_mode` | 否 | 图片工具输出的请求适配方式：`tool`（默认）保留原始 tool 图片段；`follow_up_user` 将图片临时转为标准 `image_url` data URL，并在连续 tool 回执后追加内部 user 图片上下文 |
+
+### 多模态请求适配
+当前 aioverse 版本提供 `AudioInputSegment`、`AudioUrlSegment`、`VideoInputSegment` 和
+`VideoUrlSegment`；旧会话中的视频 `UnknownSegment` 类型仍保持兼容。
+
+图片、音频与视频附件会在 Gateway 构建请求时按模型能力投影；不支持的附件只从请求中剔除，原始会话与工具注册保持不变。
 
 ### Thinking 设置
 
@@ -312,6 +330,25 @@ session.set_think_effort(ThinkingEfforts.HIGH)
 ```
 
 不同供应商对 Thinking 字段的兼容情况不同；不支持时请关闭该能力开关。
+
+### 图片工具输出兼容
+
+`VisionOperationTools.view_photo()` 保持模型无关：它只读取本地图片并返回附件说明文本与多模态图片段，不持有 Gateway 或会话上下文。
+成功结果会先返回附件说明文本，因此工具结果无需依赖 Gateway 专属文案。
+
+部分 OpenAI 兼容服务只支持 `user` 消息中的标准 `image_url`，会忽略 `tool` 消息中的图片内容。对于这类已验证支持用户图片输入的模型，可设置：
+
+```json
+{
+    "support_image": true,
+    "tool_output_image_mode": "follow_up_user"
+}
+```
+
+Gateway 会在**构建请求时**临时展开图片工具结果为 `tool` 文本回执和紧随其后的内部 `user` 图片附件；原始 `ToolOutputContext`、会话持久化内容和工具实现都不会被改写。`tool_output_image_mode` 不与 `view_photo` 等具体工具名绑定，其他返回图片段的工具同样适用。
+仅当至少一张工具图片能转换为标准 `image_url` 时才启用回退；否则保留原始 tool 消息。
+
+图片 base64 会显著增加上下文 token；`view_photo` 的 5 MiB 文件上限不等同于模型上下文可承受的图片大小。Gateway 会按实际适配后的请求内容估算并拦截超限请求。
 
 ### 路径与技能配置
 
@@ -469,9 +506,11 @@ restored_session = AssistantSession.from_file("session.json", encoding="utf-8")
 | `FileOperationTools` | `read_file`、`write_file`、`copy_full_file`、`delete_file`、`scan_directory`、`find_in_file`、`create_directory` | 文件与目录操作 |
 | `NetworkOperationTools` | `fetch_url` | HTTP 请求；HTML 会提取为 Markdown 正文 |
 | `PipOperationTools` | `pip_install`、`pip_uninstall`、`pip_list`、`pip_show` | 调用当前 Python 环境的 pip / uv pip |
+| `VisionOperationTools` | `view_photo` | 读取本地 PNG、JPEG、GIF、WebP，返回附件说明和多模态图片内容；单个文件最大 5 MiB |
 | `SkillOperationTools` | `find_skills`、`read_skill` | 查询并读取已加载的 Markdown Skill |
 
 所有工具都要显式注册到 `ToolsManager`；模型只有在 `support_tool=True` 时才会看到对应的 JSON Schema。
+成功的 `view_photo()` 结果会先返回附件说明文本，随后返回 `ImageBase64Segment`。
 
 ### 组合工具集
 
@@ -535,6 +574,7 @@ class WeatherTools(BaseTool):
 - `bash_runner`、`python_runner`、Pip 工具可以执行任意命令；
 - 文件工具没有路径白名单；
 - `fetch_url` 没有 SSRF 防护或域名白名单；
+- `view_photo` 会将本地图片内容编码后发送给模型；
 - 工具输出会回写到模型上下文中
 
 生产环境请在 Gateway / ToolsManager 外层增加工作目录隔离、命令白名单、网络出口限制、审计日志和人工确认机制。
@@ -545,7 +585,9 @@ class WeatherTools(BaseTool):
 
 ### `TokenTracker`
 
-`TokenTracker` 使用 `tiktoken` 对扁平化上下文做估算，并保存最近若干次 `actual / guessed` 的比率来校准后续估算：
+`TokenTracker` 使用 `tiktoken` 对请求内容做本地估算。Gateway 收到供应商返回的 `usage.prompt_tokens` 后，会按供应商地址、模型、工具与多模态能力形态隔离样本，并以线性斜率加固定开销校准后续请求。这样小文本请求的隐式开销不会被错误地按比例放大到图片等大附件上。
+
+直接调用 `estimate()` / `calibrate_ratio()` 时保留原有的比例校准行为；Gateway 使用作用域校准接口。
 
 ```python
 from aioclaw.core import TokenTracker
@@ -559,7 +601,7 @@ tracker = TokenTracker(
 tokens = tracker.estimate(["hello", "world"])
 ```
 
-Gateway 在模型响应带有 `usage.total_tokens` 时更新会话 token 数，并在响应带有 `usage.prompt_tokens` 时校准上下文估算器。
+Gateway 在模型响应带有 `usage.total_tokens` 时更新会话 token 数，并在响应带有 `usage.prompt_tokens` 时校准当前请求形态的上下文估算器。
 
 ### `KeysManager`
 
@@ -629,6 +671,6 @@ aioclaw/
 
 ## 更新记录 📜
 
-请查看 [CHANGELOG.md](CHANGELOG.md)。当前版本为 **0.2.2**，包含 SSE 流式处理、`StreamHandler`、模型级流式开关和 Gateway 上下文压缩。
+请查看 [CHANGELOG.md](CHANGELOG.md)。当前版本为 **0.2.3**，包含 SSE 流式处理、请求期多模态适配和 Gateway 上下文压缩。
 
 > Made with 🐾 — 欢迎按自己的业务覆写 Gateway 钩子，但别把上下文调用链拆坏了喵。

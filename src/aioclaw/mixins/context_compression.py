@@ -101,36 +101,137 @@ class ContextCompressionMixin:
 		tools = self.tools_manager.to_list()
 		return orjson.dumps(tools).decode() if tools else None
 
+	def _get_token_calibration_scope(
+		self,
+		tools_json: Optional[str] = None,
+	) -> str:
+
+		"""为同一供应商请求形态隔离 token usage 校准样本"""
+
+		config = self.assistant_model_config
+		scope_parts = (
+			config.api_url,
+			config.model_name,
+			str(config.support_tool),
+			str(config.support_thinking),
+			str(config.support_streaming),
+			str(config.support_image),
+			str(config.support_audio),
+			str(config.support_video),
+			str(getattr(config, "tool_output_image_mode", "tool")),
+			str(self.assistant_session.assistant_think_mode),
+			str(self.assistant_session.assistant_think_effort),
+			hashlib.sha256((tools_json or "").encode()).hexdigest(),
+		)
+
+		return hashlib.sha256("\0".join(scope_parts).encode()).hexdigest()
+
+	def _get_token_calibration_cache_key(self, tools_json: Optional[str]) -> str:
+
+		tracker = self.token_tracker
+		get_cache_key = getattr(tracker, "get_calibration_cache_key", None)
+
+		if callable(get_cache_key):
+			return get_cache_key(
+				calibration_scope=self._get_token_calibration_scope(tools_json)
+			)
+
+		return f"{getattr(tracker, 'ratio', 1.0):.12f}"
+
+	def _estimate_tokens(
+		self,
+		contents: List[str],
+		*,
+		tools_json: Optional[str] = None,
+		raw: bool = False,
+	) -> int:
+
+		tracker = self.token_tracker
+
+		if raw:
+			estimate_raw = getattr(tracker, "estimate_raw", None)
+			if callable(estimate_raw):
+				return estimate_raw(contents)
+
+		estimate_with_scope = getattr(tracker, "estimate_with_scope", None)
+		if callable(estimate_with_scope):
+			return estimate_with_scope(
+				contents,
+				calibration_scope=self._get_token_calibration_scope(tools_json),
+			)
+
+		return tracker.estimate(contents)
+
 	def _get_context_token_cache_key(self, tools_json: Optional[str]) -> str:
-		"""为当前模型、预算和工具 Schema 构造缓存键。"""
+		"""为当前模型、能力、预算和工具 Schema 构造缓存键。"""
 		tools_hash = hashlib.sha256((tools_json or "").encode()).hexdigest()
 		config = self.assistant_model_config
 
 		return ":".join(
 			(
 				config.model_name,
+				getattr(config, "tool_output_image_mode", "tool"),
+				str(getattr(config, "support_image", False)),
+				str(getattr(config, "support_audio", False)),
+				str(getattr(config, "support_video", False)),
 				str(config.max_context_length),
 				str(getattr(config, "reserved_completion_tokens", 0)),
 				str(getattr(config, "context_safety_margin", 0)),
 				str(id(self.token_tracker)),
-				f"{self.token_tracker.ratio:.12f}",
+				self._get_token_calibration_cache_key(tools_json),
 				tools_hash,
 			)
 		)
 
-	def _estimate_current_context_tokens(self, tools_json: Optional[str]) -> int:
+	def _estimate_current_context_tokens(
+		self,
+		tools_json: Optional[str],
+		*,
+		raw: bool = False,
+	) -> int:
 		
 		"""估算下一次普通 Agent 请求的序列化输入。"""
-		contexts_json	= orjson.dumps(self.assistant_session.contexts_status.to_list()).decode()
+		contexts_json	= orjson.dumps(self._get_request_messages()).decode()
 		contents		= [contexts_json]
 
 		if tools_json is not None:
 			contents.append(tools_json)
 
-		return self.token_tracker.estimate(contents)
+		return self._estimate_tokens(
+			contents,
+			tools_json=tools_json,
+			raw=raw,
+		)
+
+	def _reset_token_calibration(self) -> None:
+
+		"""上下文结构变化后清空当前请求形态的旧校准样本。"""
+
+		reset_calibration = getattr(self.token_tracker, "reset_calibration", None)
+		if callable(reset_calibration):
+			reset_calibration(
+				calibration_scope=self._get_token_calibration_scope(
+					self._get_context_token_tools_json()
+				),
+			)
+
+		self.assistant_session.contexts_status.clear_tokens_cache()
 
 	def get_request_estimated_tokens(self) -> int:
 		return self.estimated_context_tokens
+
+	def get_request_raw_estimated_tokens(self) -> int:
+
+		"""返回当前请求的未校准本地估算，供 usage 校准使用。"""
+
+		if not callable(getattr(self.token_tracker, "estimate_raw", None)):
+			return self.get_request_estimated_tokens()
+
+		tools_json = self._get_context_token_tools_json()
+		return self._estimate_current_context_tokens(
+			tools_json,
+			raw=True,
+		)
 
 	@property
 	def estimated_context_tokens(self) -> int:
@@ -237,8 +338,9 @@ class ContextCompressionMixin:
 			"messages"	: self._build_compression_messages_data(contexts),
 			"stream"	: False,
 		}
-		return self.token_tracker.estimate(
-			[orjson.dumps(request_body).decode()]
+		return self._estimate_tokens(
+			[orjson.dumps(request_body).decode()],
+			raw=True,
 		)
 
 
@@ -332,7 +434,7 @@ class ContextCompressionMixin:
 		
 		try:
 			contexts_status.replace_contexts(compressed_contexts)
-			new_tokens = self.estimated_context_tokens
+			new_tokens = self.get_request_raw_estimated_tokens()
 		
 		except Exception:
 			contexts_status.replace_contexts(old_contexts)
@@ -342,6 +444,9 @@ class ContextCompressionMixin:
 			contexts_status.replace_contexts(old_contexts)
 			logger.info("本地上下文压缩没有减少 token，已回滚")
 			return False
+
+		self._reset_token_calibration()
+		new_tokens = self.estimated_context_tokens
 
 		logger.info("本地上下文压缩完成: %s -> %s", old_tokens, new_tokens)
 		return True
@@ -360,7 +465,7 @@ class ContextCompressionMixin:
 			
 			contexts_status		= self.assistant_session.contexts_status
 			old_contexts		= list(contexts_status.contexts)
-			old_tokens			= self.estimated_context_tokens
+			old_tokens			= self.get_request_raw_estimated_tokens()
 			working_contexts	= deepcopy(old_contexts)
 			result				= await self.compresser.compress(working_contexts)
 			compressed_contexts	= self._get_compressed_contexts(result)
@@ -435,7 +540,7 @@ class ContextCompressionMixin:
 		memory = self._build_compression_memory_context(summary)
 		contexts_status.set_memory(memory)
 		contexts_status.replace_contexts(contexts_to_keep)
-		new_tokens = self.estimated_context_tokens
+		new_tokens = self.get_request_raw_estimated_tokens()
 
 		if new_tokens >= old_tokens:
 			
@@ -443,6 +548,9 @@ class ContextCompressionMixin:
 			logger.warning("上下文压缩没有减少 token: %s -> %s，已回滚", old_tokens, new_tokens)
 			
 			return False
+
+		self._reset_token_calibration()
+		new_tokens = self.estimated_context_tokens
 
 		logger.info("API 上下文压缩完成: %s -> %s", old_tokens, new_tokens)
 		return True
@@ -473,7 +581,7 @@ class ContextCompressionMixin:
 			if not contexts_to_compress:
 				return False
 
-			old_tokens	= self.estimated_context_tokens
+			old_tokens	= self.get_request_raw_estimated_tokens()
 			summary		= await self._request_compression_summary(contexts_to_compress)
 			
 			return self._commit_api_compression(contexts_status, contexts_to_keep, old_tokens, summary, old_contexts, old_memory)

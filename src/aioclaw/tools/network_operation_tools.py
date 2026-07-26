@@ -1,13 +1,14 @@
 from __future__ import annotations
-from fake_useragent	import UserAgent
-import httpx
-import trafilatura
 
 from ..protocols	import ToolsManagerProtocol
 from ..utils		import build_tool_schema
 from .base_tool		import BaseTool
 
 from typing			import Optional, Dict, Any
+from fake_useragent	import UserAgent
+
+import httpx
+import trafilatura
 
 
 # 访问 URL 静态内容
